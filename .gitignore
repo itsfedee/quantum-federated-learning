@@ -13,6 +13,7 @@
 !/*.py
 !/*.ps1
 
+!/figures/
 !/notebooks/
 !/qibo_qfl_pt/
 !/run_experiments/
@@ -34,3 +35,7 @@ __pycache__/
 *.csv
 *.tex
 *.log
+
+# Le poche figure mostrate nel README sono l'eccezione alla riga *.png qui
+# sopra: sono versionate apposta, perche' chi apre il repo le veda subito.
+!/figures/*.png
