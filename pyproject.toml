@@ -7,12 +7,14 @@ name = "qiboml-flower-tutorial"
 version = "1.0.0"
 description = "Quantum Federated Learning with Qiboml and Flower"
 license = "Apache-2.0"
+requires-python = ">=3.11"
 dependencies = [
     "flwr[simulation]==1.27.0",
     "flwr-datasets[vision]==0.6.0",
     "qibo==0.2.22",
     "qiboml[torch]==0.1.0",
     "scikit-learn",
+    "matplotlib",
 ]
 
 [tool.hatch.build.targets.wheel]

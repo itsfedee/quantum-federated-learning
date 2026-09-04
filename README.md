@@ -48,7 +48,7 @@ asynchronous across clients, not where one model recalibrates a handful of times
 ## Start here
 
 `notebooks/example.ipynb` walks through the mechanism on a tiny run — 2 clients,
-5 rounds, a 2-qubit circuit — that finishes in half a minute on a laptop: data,
+5 rounds, a 2-qubit circuit — that finishes in under two minutes on a laptop: data,
 circuit, federated loop, and a comparison between two strategies. It is not a
 result; the numbers above come from server-side campaigns, 7 seeds and 40 rounds
 each.
