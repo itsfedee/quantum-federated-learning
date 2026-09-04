@@ -1,33 +1,33 @@
-# Quantum Federated Learning con Qiboml e Flower
+# Quantum Federated Learning with Qiboml and Flower
 
-Federated learning su un classificatore quantistico variazionale, con rumore
-simulato (Pauli + readout), deriva del rumore fra i round e mitigazione
-Clifford Data Regression (CDR) con memoria della mappa.
+Federated learning on a variational quantum classifier, with simulated noise
+(Pauli + readout), noise drift across rounds, and Clifford Data Regression (CDR)
+mitigation with a memory of the map.
 
-Il repository contiene **solo il codice**: dati, run e figure restano in
-locale. Il `.gitignore` funziona per lista bianca — ignora tutto quello che sta
-nella radice e riammette a mano le cartelle di codice — quindi una nuova
-cartella di risultati e' ignorata di default, senza doverla aggiungere ogni
-volta.
+This repository holds **code only**: data, runs and figures stay local. The
+`.gitignore` works as a whitelist — it ignores everything at the root and
+re-admits the code folders by hand — so a new results folder is ignored by
+default, with nothing to add here each time.
 
-## Struttura
+## Layout
 
-| cartella          | contenuto                                                 |
-| ----------------- | --------------------------------------------------------- |
-| `qibo_qfl_pt/`    | app Flower: client, server, strategia custom, modello, rumore |
-| `run_experiments/`| lancio delle campagne (federate, centralizzate, tuning)   |
-| `thesis_plots/`   | figure e tabelle della tesi                               |
-| `notebooks/`      | `example.ipynb`, run giocattolo da leggere per prima cosa |
-| `tools/`          | utility di servizio (controllo run, scarico risultati)    |
+| folder             | contents                                                     |
+| ------------------ | ------------------------------------------------------------ |
+| `qibo_qfl_pt/`     | Flower app: client, server, custom strategy, model, noise    |
+| `run_experiments/` | campaign launchers (federated, centralized, tuning)          |
+| `thesis_plots/`    | figures and tables for the thesis                            |
+| `notebooks/`       | `example.ipynb`, a toy run — start here                      |
+| `tools/`           | housekeeping utilities (run checks, result download)         |
 
-## Da dove partire
+## Start here
 
-`notebooks/example.ipynb` mostra il meccanismo su una run minuscola — 2 client,
-5 round, un circuito a 2 qubit — che gira in mezzo minuto su un portatile: dati,
-circuito, ciclo federato e confronto fra due strategie. Non e' un risultato: le
-campagne della tesi girano su server, e stanno nelle figure qui sotto.
+`notebooks/example.ipynb` walks through the mechanism on a tiny run — 2 clients,
+5 rounds, a 2-qubit circuit — that finishes in half a minute on a laptop: data,
+circuit, federated loop, and a comparison between two strategies. It is not a
+result: the thesis campaigns run on a server, and they are what the figures
+below come from.
 
-## Esperimenti
+## Experiments
 
 ```bash
 python run_experiments/parallel_experiments.py --strategy FedAvg --workers 4
@@ -35,42 +35,40 @@ python run_experiments/centralized_experiments.py --mode mitigated --epochs 30
 python run_experiments/parallel_tuning.py
 ```
 
-I parametri di default della app Flower stanno in `pyproject.toml`, sotto
+Defaults for the Flower app live in `pyproject.toml`, under
 `[tool.flwr.app.config]`.
 
-## Figure e tabelle
+## Figures and tables
 
-Tutte le figure passano dallo stesso runner, da lanciare dalla radice del
-repository (o da qualunque cartella, se il pacchetto e' installato con
-`pip install -e .`): i percorsi dei dati li risolve da solo.
+Every figure goes through the same runner, to be launched from the repository
+root (or from anywhere, if the package is installed with `pip install -e .`); it
+resolves the data paths on its own.
 
 ```bash
-python -m thesis_plots --list            # gruppi e figure disponibili
-python -m thesis_plots all               # tutto tranne le figure che usano qibo
-python -m thesis_plots noise             # un gruppo intero
-python -m thesis_plots noise.circle      # una figura sola
-python -m thesis_plots all --with-qibo   # comprese quelle che rivalutano il modello
+python -m thesis_plots --list            # available groups and figures
+python -m thesis_plots all               # everything except the figures that use qibo
+python -m thesis_plots noise             # a whole group
+python -m thesis_plots noise.circle      # a single figure
+python -m thesis_plots all --with-qibo   # including the ones that re-evaluate the model
 ```
 
-I gruppi seguono i capitoli:
+The groups follow the chapters:
 
-| gruppo       | contenuto                                                      |
-| ------------ | -------------------------------------------------------------- |
-| `cap03`      | partizioni Dirichlet, deriva del rumore                        |
-| `strategies` | confronto fra strategie, a 40 round e sotto rumore             |
-| `tuning`     | sweep degli iperparametri, IID e non-IID                       |
-| `noise`      | effetto del rumore su FedAvg, isolamento dei seed              |
-| `mitigation` | CDR: recupero, dipendenza da `p`, soglia, regressione          |
-| `memory`     | sweep di soglia e memoria della mappa CDR                      |
-| `tables`     | corpi `.tex` (e `.csv`) delle tabelle                          |
-| `extra`      | figure esplorative, fuori dal documento                        |
+| group        | contents                                                        |
+| ------------ | --------------------------------------------------------------- |
+| `cap03`      | Dirichlet partitions, noise drift                               |
+| `strategies` | strategy comparison, at 40 rounds and under noise               |
+| `tuning`     | hyperparameter sweeps, IID and non-IID                          |
+| `noise`      | effect of noise on FedAvg, seed isolation                       |
+| `mitigation` | CDR: recovery, dependence on `p`, threshold, regression         |
+| `memory`     | threshold sweep and memory of the CDR map                       |
+| `tables`     | `.tex` (and `.csv`) table bodies                                |
+| `extra`      | exploratory figures, outside the document                       |
 
-Quattro voci sono marcate `[qibo]`: rivalutano il modello quantistico, quindi
-richiedono l'ambiente completo delle run e qualche minuto invece di qualche
-secondo.
+Four entries are marked `[qibo]`: they re-evaluate the quantum model, so they
+need the full run environment and take minutes rather than seconds.
 
-Sotto `thesis_plots/` i pezzi condivisi da tutte le figure: `style.py` (una sola
-tipografia, disegno alla dimensione finale di inclusione), `paths.py` (un solo
-posto per i percorsi dei dati), `palette.py` (colori e marcatori),
-`loaders.py` (lettura dei JSON delle run) e `draw.py` (le forme di figura
-ricorrenti).
+Under `thesis_plots/` sit the pieces every figure shares: `style.py` (one
+typography, drawn at the final inclusion size), `paths.py` (a single place for
+data paths), `palette.py` (colours and markers), `loaders.py` (reading the run
+JSONs) and `draw.py` (the recurring figure shapes).
