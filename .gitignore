@@ -1,0 +1,36 @@
+# Nel repository entra solo il codice: dati, risultati e figure restano locali.
+#
+# La regola e' inversa rispetto al solito: si ignora tutto quello che sta nella
+# radice e si riammette a mano il poco che serve. Cosi' una nuova cartella di
+# risultati e' ignorata di default, senza doverla aggiungere qui ogni volta.
+
+/*
+
+# --- codice e configurazione -------------------------------------------
+!/.gitignore
+!/README.md
+!/pyproject.toml
+!/*.py
+!/*.ps1
+
+!/notebooks/
+!/qibo_qfl_pt/
+!/run_experiments/
+!/thesis_plots/
+!/tools/
+
+# --- rumore, anche dentro le cartelle riammesse ------------------------
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Nessun risultato dentro le cartelle di codice.
+*.json
+*.npz
+*.png
+*.pdf
+*.csv
+*.tex
+*.log

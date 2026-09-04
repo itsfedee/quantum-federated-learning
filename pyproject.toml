@@ -1,0 +1,134 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qiboml-flower-tutorial"
+version = "1.0.0"
+description = "Quantum Federated Learning with Qiboml and Flower"
+license = "Apache-2.0"
+dependencies = [
+    "flwr[simulation]==1.27.0",
+    "flwr-datasets[vision]==0.6.0",
+    "qibo==0.2.22",
+    "qiboml[torch]==0.1.0",
+    "scikit-learn",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["qibo_qfl_pt", "thesis_plots"]
+
+[tool.flwr.app]
+publisher = "flwrlabs"
+
+[tool.flwr.app.components]
+serverapp = "qibo_qfl_pt.server_app:app"
+clientapp = "qibo_qfl_pt.client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 10
+iid = true
+num-clients = 5
+batch-size = 8
+local-epochs = 2
+fraction-fit = 0.75
+fraction-evaluate = 0.75
+min-available-clients = 2
+num-partitions = 5
+
+mode = "noisy"
+
+n-train-data = 500
+n-eval-data = 200
+
+base-pauli = 0.005
+base-readout = 0.005
+scale = 0.002
+
+alpha = 1.8
+walk-sigma=0.0001
+drift-type = "rw"
+walk-theta = 0.1
+
+seed=2
+data-seed=2
+init-seed=2
+sampling-seed=2
+walk-seed=7
+seed-label = ""
+cdr-threshold = 0.015
+cdr-mode = "no_memory"
+cdr-beta = 0.5
+cdr-intra-beta = 0
+
+
+strategy = "FedAvg"
+eta = 0.1
+eta_l = 0.35
+mu = 0.05
+model-type = "quantum"
+hidden-classical = 9
+nshots = "none"
+save-path = "fedavg_test"
+save-weights = true
+testing = true
+run-id = 0
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+#            [tool.flwr.federations]
+#             default = "local-simulation"
+
+#           [tool.flwr.federations.local-simulation]
+#             options.num-supernodes = 5
+
+
+# # # # # # # # # # # # # # # # # [tool.flwr.federations.local-simulation-gpu]
+# # # # # # # # # # # # # # # # # options.num-supernodes = 5
+# # # # # # # # # # # # # # # # # options.backend.client-resources.num-cpus = 2
+# # # # # # # # # # # # # # # # # options.backend.client-resources.num-gpus = 0.2

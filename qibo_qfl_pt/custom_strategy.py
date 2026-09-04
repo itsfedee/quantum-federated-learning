@@ -1,0 +1,607 @@
+import json
+import random
+from pathlib import Path
+from typing import Optional, Callable
+from flwr.app import MetricRecord, ArrayRecord, ConfigRecord, RecordDict, Message
+from flwr.serverapp import Grid
+from flwr.serverapp.strategy import FedAvg, FedAdam, FedProx, FedAdagrad, FedYogi, Result
+from flwr.common.logger import log
+from logging import INFO, WARNING
+
+class StrategyWithMetrics:
+    """Mixin che aggiunge salvataggio, stampa metriche e selezione deterministica dei client."""
+    
+    def __init__(self, save_path: str = "results", suffix: str = "", run_info: dict | None = None,
+                 sampling_seed: int = 42, training_mode: str = "federated", noise_info: dict | None = None,
+                 nshots=None, model_type: str = "quantum", **kwargs):
+        # CDR memory: pop prima del super per non passarlo a FedAvg/FedAdam/etc.
+        cdr_memory = kwargs.pop("cdr_memory", False)
+        cdr_beta = float(kwargs.pop("cdr_beta", 0.0))
+        cdr_mode = kwargs.pop("cdr_mode", "no_memory")
+        cdr_threshold = kwargs.pop("cdr_threshold", None)
+        super().__init__(**kwargs)
+        self.training_mode = training_mode
+        self.save_path = Path(save_path)
+        self.save_path.mkdir(parents=True, exist_ok=True)
+        self.metrics_history = []
+        self.run_info = run_info or {}
+        self.run_info["training_mode"] = training_mode
+        self.run_info["nshots"] = nshots
+        self.run_info["model_type"] = model_type
+        if noise_info:
+            self.run_info.update(noise_info)
+        self.sampling_seed = sampling_seed
+
+        self.cdr_memory = cdr_memory
+        self.cdr_beta = cdr_beta
+        self.cdr_mode = cdr_mode
+        self.cdr_threshold = cdr_threshold
+        self.cdr_state = {}  # {partition_id: (a, b)}
+        self.cdr_total_calibrations = 0  # contatore cumulativo calibrazioni
+
+        # Inizializza variabili per campionamento deterministico
+        self.current_round = 0
+        self.deterministic_indices = []  # Ordine deterministico degli INDICI
+        self.node_id_to_index = {}       # Mapping node_id -> indice fisso
+        self.index_to_node_id = {}       # Mapping indice -> node_id
+        self.is_initialized = False
+        
+        strategy_name = self.__class__.__name__.lower()
+        if suffix:
+            self.metrics_filename = self.save_path / f"{strategy_name}{suffix}.json"
+        else:
+            self.metrics_filename = self.save_path / f"{strategy_name}.json"
+    
+    def summary(self) -> None:
+        """Log summary con training mode e iperparametri."""
+        log(INFO, "\t├──> Model type: %s", self.run_info.get("model_type", "quantum"))
+        log(INFO, "\t├──> Training mode: %s", self.training_mode)
+        log(INFO, "\t├──> Run info:")
+        for key, val in self.run_info.items():
+            if val is not None:
+                log(INFO, "\t│\t├── %s: %s", key, val)
+        super().summary()
+
+    def _initialize_deterministic_order(self, grid: Grid):
+        """Inizializza l'ordine deterministico basato su indici fissi."""
+        if not self.is_initialized:
+            all_node_ids = sorted(list(grid.get_node_ids()))
+            num_clients = len(all_node_ids)
+            
+            # Crea mapping fisso: node_id -> indice (0, 1, 2, ...)
+            for idx, node_id in enumerate(all_node_ids):
+                self.node_id_to_index[node_id] = idx
+                self.index_to_node_id[idx] = node_id
+            
+            # Crea sequenza deterministicamente shufflata di INDICI
+            self.deterministic_indices = list(range(num_clients))
+            random.seed(self.sampling_seed)
+            random.shuffle(self.deterministic_indices)
+            
+            self.is_initialized = True
+
+    
+    def _get_deterministic_node_ids(self, grid: Grid, fraction: float, min_nodes: int) -> list[int]:
+        """Seleziona deterministicamente i client in base al round corrente."""
+        # Inizializza l'ordine solo al primo round
+        self._initialize_deterministic_order(grid)
+        
+        # Parametri per la selezione
+        num_clients = len(self.deterministic_indices)
+        clients_per_round = max(int(num_clients * fraction), min_nodes)
+        
+        # Campionamento circolare sulla sequenza shufflata di indici
+        # Round 1: prende i primi clients_per_round dalla sequenza shufflata
+        # Round 2: shifta di 1 nella sequenza shufflata
+        start_pos = (self.current_round - 1) % num_clients
+        selected_positions = [(start_pos + i) % num_clients for i in range(clients_per_round)]
+        
+        # Ottieni gli indici dalla sequenza shufflata
+        selected_indices = [self.deterministic_indices[pos] for pos in selected_positions]
+        
+        # Converti indici -> node_ids
+        selected_node_ids = [self.index_to_node_id[idx] for idx in selected_indices]
+        
+        #log(INFO, f"Round {self.current_round}: positions {selected_positions} -> indices {selected_indices} -> node_ids {selected_node_ids}")
+        
+        return selected_node_ids
+    
+    def configure_train(
+    self,
+    server_round: int,
+    arrays: ArrayRecord,
+    config: ConfigRecord,
+    grid: Grid,
+):
+        """Override per selezione deterministica dei client."""
+        if self.fraction_train == 0.0:
+            return []
+        
+        # Selezione deterministica
+        node_ids = self._get_deterministic_node_ids(
+            grid, 
+            self.fraction_train, 
+            self.min_train_nodes
+        )
+        
+        # Crea messaggi con partition_id deterministico nel config
+        messages = []
+        for node_id in node_ids:
+            # Ottieni l'indice fisso per questo node_id
+            client_index = self.node_id_to_index[node_id]
+            
+            # Aggiungi partition_id al config
+            config_dict = dict(config)
+            config_dict["partition_id"] = client_index  # Usa indice fisso come partition_id
+            config_dict["server_round"] = server_round
+            if hasattr(self, "proximal_mu"):
+                config_dict["proximal-mu"] = self.proximal_mu
+
+            # CDR memory: inietta (a, b) dal round precedente
+            if self.cdr_memory and client_index in self.cdr_state:
+                a, b = self.cdr_state[client_index]
+                config_dict["cdr-a-init"] = a
+                config_dict["cdr-b-init"] = b
+
+            updated_config = ConfigRecord(config_dict)
+
+            content = RecordDict({
+                self.arrayrecord_key: arrays,
+                self.configrecord_key: updated_config,
+            })
+
+            message = Message(
+                content=content,
+                dst_node_id=node_id,
+                message_type="train",
+                group_id=str(server_round),
+            )
+            messages.append(message)
+
+        return messages
+
+    
+    def configure_evaluate(
+    self,
+    server_round: int,
+    arrays: ArrayRecord,
+    config: ConfigRecord,
+    grid: Grid,
+):
+        """Override per selezione deterministica dei client (evaluation)."""
+        if self.fraction_evaluate == 0.0:
+            return []
+        
+        # Usa gli stessi client del training
+        node_ids = self._get_deterministic_node_ids(
+            grid, 
+            self.fraction_evaluate, 
+            self.min_evaluate_nodes
+        )
+        
+        # Crea messaggi con partition_id deterministico nel config
+        messages = []
+        for node_id in node_ids:
+            # Ottieni l'indice fisso per questo node_id
+            client_index = self.node_id_to_index[node_id]
+            
+            # Aggiungi partition_id al config
+            config_dict = dict(config)
+            config_dict["partition_id"] = client_index
+            config_dict["server_round"] = server_round
+
+            # CDR memory: inietta (a, b) dal round precedente
+            if self.cdr_memory and client_index in self.cdr_state:
+                a, b = self.cdr_state[client_index]
+                config_dict["cdr-a-init"] = a
+                config_dict["cdr-b-init"] = b
+
+            updated_config = ConfigRecord(config_dict)
+
+            content = RecordDict({
+                self.arrayrecord_key: arrays,
+                self.configrecord_key: updated_config,
+            })
+
+            message = Message(
+                content=content,
+                dst_node_id=node_id,
+                message_type="evaluate",
+                group_id=str(server_round),
+            )
+            messages.append(message)
+        
+        return messages
+
+
+    def start(
+    self,
+    grid: Grid,
+    initial_arrays: ArrayRecord,
+    num_rounds: int = 3,
+    timeout: float = 3600,
+    train_config: Optional[ConfigRecord] = None,
+    evaluate_config: Optional[ConfigRecord] = None,
+    evaluate_fn: Optional[Callable[[int, ArrayRecord], Optional[MetricRecord]]] = None,
+    train_evaluate_fn: Optional[Callable[[int, ArrayRecord], Optional[MetricRecord]]] = None,
+) -> Result:
+        """Esegue la strategia con campionamento deterministico."""
+        
+        log(INFO, f"Starting {self.training_mode} training with {self.__class__.__name__}")
+        self.summary()
+        
+        train_config = ConfigRecord() if train_config is None else train_config
+        evaluate_config = ConfigRecord() if evaluate_config is None else evaluate_config
+        
+        result = Result()
+        arrays = initial_arrays
+        
+        # Inizializza lo stato della strategia (importante per FedAdam, FedYogi, ecc.)
+        # Converti ArrayRecord in dizionario di numpy arrays
+        self.current_arrays = {
+            k: v for k, v in zip(
+                initial_arrays.keys(),
+                initial_arrays.to_numpy_ndarrays()
+            )
+        }
+        
+        # Inizializza il file JSON
+        self.run_info["cdr_mode"] = self.cdr_mode
+        if self.cdr_threshold is not None:
+            self.run_info["cdr_threshold"] = self.cdr_threshold
+        if self.cdr_memory:
+            self.run_info["cdr_beta"] = self.cdr_beta
+        with open(self.metrics_filename, "w") as f:
+            json.dump({"info": self.run_info, "rounds": []}, f, indent=3)
+        
+        # Round 0 (valutazione server)
+        self._last_train_eval_server = None
+        if evaluate_fn:
+            res = evaluate_fn(0, initial_arrays)
+            if res is not None:
+                result.evaluate_metrics_serverapp[0] = res
+        if train_evaluate_fn:
+            res = train_evaluate_fn(0, initial_arrays)
+            if res is not None:
+                self._last_train_eval_server = dict(res)
+        self._save_round_metrics(0, result)
+        
+        # Ciclo dei Round
+        for self.current_round in range(1, num_rounds + 1):
+            log(INFO, f"\n[ROUND {self.current_round}/{num_rounds}]")
+            
+            # Training
+            train_messages = self.configure_train(self.current_round, arrays, train_config, grid)
+            train_replies = grid.send_and_receive(messages=train_messages, timeout=timeout)
+            
+            agg_arrays, agg_train_metrics = self.aggregate_train(self.current_round, train_replies)
+            
+            # Estrai drift per-client dalle risposte
+            client_drifts = []
+            client_drifts_by_id = {}
+            for reply in train_replies:
+                if not reply.has_content():
+                    continue
+                m = reply.content.get("metrics", {})
+                if "drift" in m:
+                    d = float(m["drift"])
+                    client_drifts.append(d)
+                    pid = int(m["partition_id"]) if "partition_id" in m else None
+                    if pid is not None:
+                        client_drifts_by_id[pid] = d
+
+            if client_drifts:
+                import numpy as _np
+                self._last_drift_metrics = {
+                    "drift_median": float(_np.median(client_drifts)),
+                    "drift_mean": float(_np.mean(client_drifts)),
+                    "drift_max": float(_np.max(client_drifts)),
+                    "drift_min": float(_np.min(client_drifts)),
+                    "drift_by_client_id": client_drifts_by_id,
+                }
+            else:
+                self._last_drift_metrics = None
+
+            # Estrai la noise map REALMENTE USATA in training, per-client (no media)
+            cdr_train = []
+            for reply in train_replies:
+                if not reply.has_content():
+                    continue
+                m = reply.content.get("metrics", {})
+                if "cdr_a_train" in m and "cdr_b_train" in m:
+                    entry = {
+                        "client": int(m.get("cdr_client", -1)),
+                        "a": float(m["cdr_a_train"]),
+                        "b": float(m["cdr_b_train"]),
+                    }
+                    if "cdr_n_maps" in m:
+                        entry["n_maps"] = int(m["cdr_n_maps"])
+                    if "cdr_n_checks" in m:
+                        entry["n_checks"] = int(m["cdr_n_checks"])
+                    # Check log diagnostico
+                    cl = reply.content.get("cdr_check_log", {})
+                    if "data" in cl:
+                        import json as _json
+                        entry["check_log"] = _json.loads(cl["data"])
+                    cdr_train.append(entry)
+            self._last_cdr_train_metrics = cdr_train if cdr_train else None
+
+            # Conteggio cumulativo calibrazioni (train)
+            round_calibrations = sum(e.get("n_maps", 0) for e in cdr_train)
+            self.cdr_total_calibrations += round_calibrations
+            if round_calibrations > 0:
+                calibrated_clients = [e["client"] for e in cdr_train if e.get("n_maps", 0) > 0]
+                log(INFO, f" └──> CDR calibrations this round: {round_calibrations} (clients {calibrated_clients}), total: {self.cdr_total_calibrations}")
+
+            # CDR memory: aggiorna lo stato (a, b) per-client
+            # beta=0 -> naive (ultimo fit); beta>0 -> EMA
+            if self.cdr_memory:
+                for entry in cdr_train:
+                    pid = entry["client"]
+                    if entry.get("n_maps", 0) > 0:
+                        new = (entry["a"], entry["b"])
+                        old = self.cdr_state.get(pid)
+                        if old is None or self.cdr_beta == 0.0:
+                            self.cdr_state[pid] = new
+                        else:
+                            bta = self.cdr_beta
+                            self.cdr_state[pid] = (
+                                bta * old[0] + (1 - bta) * new[0],
+                                bta * old[1] + (1 - bta) * new[1],
+                            )
+            if agg_arrays is not None:
+                arrays = agg_arrays
+                result.arrays = agg_arrays
+                # Aggiorna current_arrays per strategie adaptive
+                self.current_arrays = {
+                    k: v for k, v in zip(
+                        agg_arrays.keys(),
+                        agg_arrays.to_numpy_ndarrays()
+                    )
+                }
+            if agg_train_metrics is not None:
+                result.train_metrics_clientapp[self.current_round] = agg_train_metrics
+                log(INFO, f" └──> Train metrics: {dict(agg_train_metrics)}")
+            
+            # Evaluation
+            if self.fraction_evaluate > 0:
+                evaluate_messages = self.configure_evaluate(self.current_round, arrays, evaluate_config, grid)
+                evaluate_replies = grid.send_and_receive(messages=evaluate_messages, timeout=timeout)
+                
+                agg_evaluate_metrics = self.aggregate_evaluate(self.current_round, evaluate_replies)
+                if agg_evaluate_metrics is not None:
+                    result.evaluate_metrics_clientapp[self.current_round] = agg_evaluate_metrics
+                    log(INFO, f" └──> Eval metrics: {dict(agg_evaluate_metrics)}")
+
+                # Estrai (a,b) CDR per-client dalle risposte di eval (come si fa col drift,
+                # niente media: l'aggregato collasserebbe i client in un valore solo).
+                cdr_per_client = []
+                for reply in evaluate_replies:
+                    if not reply.has_content():
+                        continue
+                    m = reply.content.get("metrics", {})
+                    if "cdr_a" in m and "cdr_b" in m:
+                        entry = {
+                            "client": int(m.get("cdr_client", -1)),
+                            "a": float(m["cdr_a"]),
+                            "b": float(m["cdr_b"]),
+                        }
+                        # Scatter in record separato (non nel MetricRecord)
+                        scatter = reply.content.get("cdr_scatter", {})
+                        if "cdr_noisy" in scatter and "cdr_noisefree" in scatter:
+                            entry["noisy"] = list(scatter["cdr_noisy"])
+                            entry["noisefree"] = list(scatter["cdr_noisefree"])
+                        # Check log diagnostico
+                        cl = reply.content.get("cdr_check_log", {})
+                        if "data" in cl:
+                            import json as _json
+                            entry["check_log"] = _json.loads(cl["data"])
+                        cdr_per_client.append(entry)
+                self._last_cdr_metrics = cdr_per_client if cdr_per_client else None
+            
+            # Valutazione server
+            if evaluate_fn:
+                res = evaluate_fn(self.current_round, arrays)
+                if res is not None:
+                    result.evaluate_metrics_serverapp[self.current_round] = res
+
+            # Valutazione server sul train set
+            self._last_train_eval_server = None
+            if train_evaluate_fn:
+                res = train_evaluate_fn(self.current_round, arrays)
+                if res is not None:
+                    self._last_train_eval_server = dict(res)
+
+            # Salvataggio metriche
+            self._save_round_metrics(self.current_round, result)
+        
+        log(INFO, f"\nTraining completed! Metrics saved in {self.save_path}")
+        if self.cdr_total_calibrations > 0:
+            log(INFO, f"CDR total calibrations (train): {self.cdr_total_calibrations}")
+            # Salva il totale nel JSON
+            with open(self.metrics_filename, "r+") as f:
+                data = json.load(f)
+                data["info"]["cdr_total_calibrations"] = self.cdr_total_calibrations
+                f.seek(0)
+                json.dump(data, f, indent=3)
+                f.truncate()
+        return result
+
+
+    
+    def _save_round_metrics(self, current_round: int, result: Result):
+        round_data = {
+            "round": current_round,
+            "train_metrics": dict(result.train_metrics_clientapp.get(current_round, {})),
+            "eval_metrics_client": dict(result.evaluate_metrics_clientapp.get(current_round, {})),
+            "eval_metrics_server": dict(result.evaluate_metrics_serverapp.get(current_round, {})),
+        }
+
+        # Train eval server (modello globale valutato sul train set)
+        if hasattr(self, "_last_train_eval_server") and self._last_train_eval_server is not None:
+            round_data["train_eval_server"] = self._last_train_eval_server
+            self._last_train_eval_server = None
+        
+        # Aggiungi drift metrics se disponibili
+        if hasattr(self, "_last_drift_metrics") and self._last_drift_metrics is not None:
+            round_data["drift_metrics"] = self._last_drift_metrics
+            self._last_drift_metrics = None
+
+        # Aggiungi (a,b) CDR per-client se disponibili
+        if hasattr(self, "_last_cdr_metrics") and self._last_cdr_metrics is not None:
+            round_data["cdr_per_client"] = self._last_cdr_metrics
+            self._last_cdr_metrics = None
+
+        # Aggiungi la noise map USATA in training (per-client) se disponibile
+        if hasattr(self, "_last_cdr_train_metrics") and self._last_cdr_train_metrics is not None:
+            round_data["cdr_train_per_client"] = self._last_cdr_train_metrics
+            self._last_cdr_train_metrics = None
+        
+        self.metrics_history.append(round_data)
+        
+        with open(self.metrics_filename, "r+") as f:
+            data = json.load(f)
+            data["rounds"] = self.metrics_history
+            f.seek(0)
+            json.dump(data, f, indent=3)
+            f.truncate()
+
+
+class fedavg(StrategyWithMetrics, FedAvg):
+    """FedAvg con salvataggio e stampa delle metriche."""
+    def __init__(self, seed, num_rounds, num_clients, local_epochs, iid, alpha,
+                 eta_l=None, sampling_seed=None, init_seed=None, data_seed=None, run_id=None, **kwargs):
+        run_info = {
+            "strategy": "FedAvg",
+            "seed": seed,
+            "init_seed": init_seed if init_seed is not None else seed,
+            "sampling_seed": sampling_seed if sampling_seed is not None else seed,
+            "data_seed": data_seed if data_seed is not None else seed,
+            "fraction_train": kwargs.get("fraction_train", 1.0),
+            "fraction_evaluate": kwargs.get("fraction_evaluate", 1.0),
+            "local_epochs": local_epochs,
+            "num_rounds": num_rounds,
+            "num_clients": num_clients,
+            "eta_l": eta_l,
+            "iid": iid,
+            "alpha": alpha if not iid else None,
+        }
+        seed_label = kwargs.pop("seed_label", None) or f"seed{seed}"
+        suffix = f"_etal{eta_l}_{seed_label}"
+        super().__init__(
+            suffix=suffix,
+            run_info=run_info,
+            sampling_seed=sampling_seed if sampling_seed is not None else seed,
+            **kwargs,
+        )
+
+
+class fedadam(StrategyWithMetrics, FedAdam):
+    """FedAdam con salvataggio e stampa delle metriche."""
+    def __init__(self, seed, eta, eta_l, num_rounds, num_clients, local_epochs, iid, alpha,
+                 sampling_seed=None, run_id=None, init_seed=None, data_seed=None, **kwargs):
+        run_info = {
+            "strategy": "FedAdam",
+            "seed": seed,
+            "sampling_seed": sampling_seed if sampling_seed is not None else seed,
+            "fraction_train": kwargs.get("fraction_train", 1.0),
+            "fraction_evaluate": kwargs.get("fraction_evaluate", 1.0),
+            "local_epochs": local_epochs,
+            "num_rounds": num_rounds,
+            "num_clients": num_clients,
+            "eta": eta,
+            "eta_l": eta_l,
+            "iid": iid,
+            "alpha": alpha if not iid else None,
+        }
+        seed_label = kwargs.pop("seed_label", None) or f"seed{seed}"
+        suffix = f"_eta{eta}_etal{eta_l}_{seed_label}"
+        super().__init__(
+            eta=eta,
+            eta_l=eta_l,
+            suffix=suffix,
+            run_info=run_info,
+            sampling_seed=sampling_seed if sampling_seed is not None else seed,
+            **kwargs,
+        )
+
+
+class fedadagrad(StrategyWithMetrics, FedAdagrad):
+    def __init__(self, seed, eta, eta_l, num_rounds, num_clients, local_epochs, iid, alpha,
+                 sampling_seed=None, run_id=None, init_seed=None, data_seed=None, **kwargs):
+        run_info = {
+            "strategy": "FedAdagrad",
+            "seed": seed,
+            "sampling_seed": sampling_seed if sampling_seed is not None else seed,
+            "local_epochs": local_epochs,
+            "num_rounds": num_rounds,
+            "num_clients": num_clients,
+            "eta": eta,
+            "eta_l": eta_l,
+            "iid": iid,
+            "alpha": alpha if not iid else None,
+        }
+        seed_label = kwargs.pop("seed_label", None) or f"seed{seed}"
+        suffix = f"_eta{eta}_etal{eta_l}_{seed_label}"
+        super().__init__(
+            eta=eta,
+            eta_l=eta_l,
+            suffix=suffix,
+            run_info=run_info,
+            sampling_seed=sampling_seed if sampling_seed is not None else seed,
+            **kwargs,
+        )
+
+
+class fedyogi(StrategyWithMetrics, FedYogi):
+    def __init__(self, seed, eta, eta_l, num_rounds, num_clients, local_epochs, iid, alpha,
+                 sampling_seed=None, run_id=None, init_seed=None, data_seed=None, **kwargs):
+        run_info = {
+            "strategy": "FedYogi",
+            "seed": seed,
+            "sampling_seed": sampling_seed if sampling_seed is not None else seed,
+            "local_epochs": local_epochs,
+            "num_rounds": num_rounds,
+            "num_clients": num_clients,
+            "eta": eta,
+            "eta_l": eta_l,
+            "iid": iid,
+            "alpha": alpha if not iid else None,
+        }
+        seed_label = kwargs.pop("seed_label", None) or f"seed{seed}"
+        suffix = f"_eta{eta}_etal{eta_l}_{seed_label}"
+        super().__init__(
+            eta=eta,
+            eta_l=eta_l,
+            suffix=suffix,
+            run_info=run_info,
+            sampling_seed=sampling_seed if sampling_seed is not None else seed,
+            **kwargs,
+        )
+
+
+class fedprox(StrategyWithMetrics, FedProx):
+    """FedProx con salvataggio e stampa delle metriche."""
+    def __init__(self, seed, mu, num_rounds, num_clients, iid, alpha, local_epochs,
+                 eta_l=None, sampling_seed=None, run_id=None, init_seed=None, data_seed=None, **kwargs):
+        seed_label = kwargs.pop("seed_label", None) or f"seed{seed}"
+        suffix = f"_mu{mu}_etal{eta_l}_{seed_label}"
+        run_info = {
+            "strategy": "FedProx",
+            "seed": seed,
+            "sampling_seed": sampling_seed if sampling_seed is not None else seed,
+            "local_epochs": local_epochs,
+            "mu": mu,
+            "eta_l": eta_l,
+            "num_rounds": num_rounds,
+            "num_clients": num_clients,
+            "iid": iid,
+            "alpha": alpha if not iid else None,
+        }
+        super().__init__(
+            proximal_mu=mu,
+            suffix=suffix,
+            run_info=run_info,
+            sampling_seed=sampling_seed if sampling_seed is not None else seed,
+            **kwargs,
+        )
