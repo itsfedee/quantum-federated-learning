@@ -28,9 +28,11 @@ METRICS_CLIENT = ["loss", "accuracy", "f1"]
 METRICS_SERVER = ["loss", "accuracy", "f1_score"]
 
 METRIC_INFO = {
-    "loss":     {"ylabel": "Loss",         "pct": False},
-    "accuracy": {"ylabel": "Accuracy (%)", "pct": True},
-    "f1":       {"ylabel": "F1 score",     "pct": True},
+    "loss":     {"ylabel": "Loss",           "pct": False},
+    "accuracy": {"ylabel": "Accuracy (%)",   "pct": True},
+    "f1":       {"ylabel": "F1 score (%)",   "pct": True},
+    # Stesse metriche lette lato server, dove F1 si chiama f1_score.
+    "f1_score": {"ylabel": "F1 score (%)",   "pct": True},
 }
 METRIC_LABELS = {"loss": "Loss", "accuracy": "Accuracy", "f1_score": "F1 score"}
 METRIC_LABELS_PCT = {"loss": "Loss", "accuracy": "Accuracy (%)",

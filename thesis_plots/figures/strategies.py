@@ -34,7 +34,7 @@ STRATEGY_FILES = {
 ADAM_IID = "fedadam_eta0.2_etal0.15_seed{seed}.json"
 ADAM_NON_IID = "fedadam_eta0.1_etal0.1_seed{seed}.json"
 
-TUNING_SEEDS = [14, 71, 130]
+TUNING_SEEDS = [1001, 1002, 1003]
 ETA_L_VALUES = [0.001, 0.005, 0.01, 0.15, 0.2, 0.25, 0.3, 0.35]
 TUNING_COLORS = [
     "#d62728",  # 0.001 - red
@@ -54,6 +54,13 @@ STATIC_P005 = "scaled_p0.005_r0.005_s0.002"
 # 4.1 - confronto a 40 round
 # =====================================================================
 
+def _as_pct(metric, med, dev):
+    """Accuratezza e F1 in punti percentuali, la loss resta com'e'."""
+    if palette.METRIC_INFO[metric]["pct"]:
+        return med * 100, dev * 100
+    return med, dev
+
+
 def _centralized_reference(ax, x, med, dev):
     """Riferimento centralizzato: tratteggio grigio dietro alle altre curve."""
     ax.plot(x, med, color="0.3", lw=1.5, ls="--", label="Centralized", zorder=0)
@@ -61,7 +68,7 @@ def _centralized_reference(ax, x, med, dev):
 
 
 def _comparison_panel(axes, dist, adam_pattern, centr_data):
-    sim_dir = Path(paths.STRATEGY_FED) / dist / "simulations" / "simulation_experiments"
+    sim_dir = Path(paths.STRATEGY_FED) / dist
 
     for name, pattern in STRATEGY_FILES.items():
         if name == "FedAdam":
@@ -72,6 +79,7 @@ def _comparison_panel(axes, dist, adam_pattern, centr_data):
         for ax, m in zip(axes, METRICS):
             rounds, mat = data[m]
             med, dev = loaders.median_mad(mat)
+            med, dev = _as_pct(m, med, dev)
             draw.curve(ax, rounds, med, dev, name,
                        palette.STRATEGY_COLORS[name],
                        palette.STRATEGY_MARKERS[name],
@@ -86,11 +94,12 @@ def _comparison_panel(axes, dist, adam_pattern, centr_data):
             n_points = min(sampled.shape[1], MAX_ROUND + 1)
             sampled = sampled[:, :n_points]
             med, dev = loaders.median_mad(sampled)
+            med, dev = _as_pct(m, med, dev)
             _centralized_reference(ax, np.arange(n_points), med, dev)
 
     for ax, m in zip(axes, METRICS):
         ax.set_xlabel("Round $t$")
-        ax.set_ylabel(palette.METRIC_LABELS[m])
+        ax.set_ylabel(palette.METRIC_INFO[m]["ylabel"])
         ax.set_xlim(0, MAX_ROUND)
         ax.tick_params(direction="in")
         if m == "loss":
@@ -130,7 +139,8 @@ def comparison():
         if m == "loss":
             ax.set_ylim(bottom=0.28)
     ts.legend_above(fig, axes[0], ncol=4)
-    ts.save(fig, str(out / "04_fedavg_iid_tuning"))
+    # Lo sweep di eta_l non e' impaginato: sta fra le figure esplorative.
+    ts.save(fig, f"{paths.ensure(paths.EXTRA)}/04_fedavg_iid_tuning")
 
 
 # =====================================================================
@@ -171,48 +181,52 @@ def under_noise():
             return f"{base}/{strat}/{regime}/{STATIC_P005}"
         return folder
 
+    # Le due figure del braccio mitigato stanno in appendice, col prefisso
+    # del capitolo 6; le altre due in 4.2 come il resto della sezione.
+    mit_out = Path(paths.ensure(paths.FINAL_06))
+    # Le varianti random walk non sono impaginate.
+    extra = paths.ensure(paths.EXTRA)
     for base, refs, dist, fedavg_sub in (
             (paths.IID, ref_iid, "iid", None),
             (paths.NON_IID, ref_ni, "noniid", "p0.005")):
         for regime in ("noisy", "mitigated"):
+            dest = (mit_out / f"06_strategy_comparison_mitigated_{dist}_p005"
+                    if regime == "mitigated"
+                    else out / f"04_strategy_comparison_noisy_{dist}_p005")
             draw.scenario_panels(
                 refs + _strategy_arms(static(base, regime, fedavg_sub)),
-                str(out / f"04_strategy_comparison_{regime}_{dist}_p005"))
+                str(dest))
 
     # --- deriva random walk --------------------------------------------
     for sub, refs, dist in ((f"{paths.DRIFT_RW}/noisy_iid", ref_iid, "iid"),
                             (f"{paths.DRIFT_RW}/noisy_non_iid", ref_ni, "noniid")):
         draw.scenario_panels(
             refs + _strategy_arms(lambda s, sub=sub: f"{sub}/{s}"),
-            str(out / f"04_strategy_comparison_drift_{dist}_p005"))
+            f"{extra}/04_strategy_comparison_drift_{dist}_p005_RW")
 
     # --- deriva Ornstein-Uhlenbeck --------------------------------------
-    # FedAvg IID non sta in strategies_OU_drift_10r: le sue run OU a 10 round
-    # sono quelle del braccio noisy dello sweep sulla memoria.
-    def ou_iid(strat):
-        if strat == "fedavg":
-            return paths.NOISY_OU_10R
-        return f"{paths.DRIFT_OU}/iid/{strat}/noisy"
-
-    draw.scenario_panels(ref_iid + _strategy_arms(ou_iid),
-                         str(out / "04_strategy_comparison_drift_iid_p005_OU"))
+    # La deriva impaginata in 4.2 e' questa: il nome resta senza suffisso.
+    draw.scenario_panels(
+        ref_iid + _strategy_arms(
+            lambda s: f"{paths.DRIFT_OU}/iid/{s}/noisy"),
+        str(out / "04_strategy_comparison_drift_iid_p005"))
     draw.scenario_panels(
         ref_ni + _strategy_arms(
             lambda s: f"{paths.DRIFT_OU}/non_iid/{s}/noisy"),
-        str(out / "04_strategy_comparison_drift_noniid_p005_OU"))
+        str(out / "04_strategy_comparison_drift_noniid_p005"))
 
     # --- FedAvg non-IID: noiseless vs statico vs deriva ------------------
     noisy_ni = loaders.read_federated(f"{paths.FEDAVG_NON_IID}/noisy/p0.005")
-    for drift_folder, suffix in (
-            (f"{paths.DRIFT_RW}/noisy_non_iid/fedavg", ""),
-            (f"{paths.DRIFT_OU}/non_iid/fedavg/noisy", "_OU")):
+    for drift_folder, suffix, dest in (
+            (f"{paths.DRIFT_OU}/non_iid/fedavg/noisy", "", str(out)),
+            (f"{paths.DRIFT_RW}/noisy_non_iid/fedavg", "_RW", extra)):
         draw.scenario_panels([
             ("Centralized", centr, palette.CENTRALIZED, "--", None, 0),
             ("Noiseless", noiseless_ni, "C0", "-", "o", 0),
             ("Noisy (static, $p=0.005$)", noisy_ni, palette.NOISY, "-", "s", 1),
             ("Noisy (drift, $p=0.005$)",
              loaders.read_federated(drift_folder), "#67000d", "-", "^", 2),
-        ], str(out / f"04_fedavg_noiseless_vs_noisy_vs_drift_noniid{suffix}"))
+        ], f"{dest}/04_fedavg_noiseless_vs_noisy_vs_drift_noniid{suffix}")
 
 
 FIGURES = {

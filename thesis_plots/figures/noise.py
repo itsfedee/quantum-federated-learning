@@ -19,8 +19,8 @@ BASE = paths.FEDAVG_IID
 # Il resto della configurazione e' lo stesso: p = 0.005, sigma = 0.001, 10
 # round, 7 seed.
 DRIFT_SOURCES = [
-    (f"{paths.DRIFT_RW}/noisy_iid/fedavg", ""),
-    (paths.NOISY_OU_10R, "_OU"),
+    (paths.NOISY_OU_10R, "", paths.FIG_NOISE),      # impaginata in 4.2
+    (f"{paths.DRIFT_RW}/noisy_iid/fedavg", "_RW", paths.EXTRA),
 ]
 
 SEED_SOURCES = [
@@ -67,7 +67,6 @@ def seed_isolation():
 
 def drift():
     """Noiseless vs rumore statico vs deriva, nelle due varianti di processo."""
-    out = paths.ensure(paths.FIG_NOISE)
     # Le prime tre curve non dipendono dal tipo di deriva: si leggono una volta.
     common = [
         ("Centralized", loaders.read_centralized(paths.CENTRALIZED),
@@ -78,11 +77,11 @@ def drift():
          loaders.read_federated(paths.static_noise(BASE, "noisy", 0.005)),
          palette.NOISY, "-", "s", 1),
     ]
-    for folder, suffix in DRIFT_SOURCES:
+    for folder, suffix, dest in DRIFT_SOURCES:
         draw.scenario_panels(
             common + [("Noisy (drift, $p=0.005$)",
                        loaders.read_federated(folder), "#67000d", "-", "^", 2)],
-            f"{out}/04_noiseless_vs_noisy_vs_drift{suffix}")
+            f"{paths.ensure(dest)}/04_noiseless_vs_noisy_vs_drift{suffix}")
 
 
 # =====================================================================

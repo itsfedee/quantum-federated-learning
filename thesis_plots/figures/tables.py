@@ -7,7 +7,8 @@
   parameters distanza nei pesi e Delta loss sotto valutazione pulita
 
 Le prime finiscono in thesis_images/cap_04_Results/tables/, le altre nella
-cartella della campagna (NEW_THESIS_IMAGES/ o NEW_THESIS_IMAGES_RW/), ciascuna
+cartella delle tabelle della campagna (thesis_images/tables/ per l'OU,
+NEW_THESIS_IMAGES_RW/ per la random walk), ciascuna
 accompagnata dal CSV con le colonne che nel .tex non entrano.
 """
 import csv
@@ -42,7 +43,7 @@ STRATEGY_FILES_NON_IID = [
      else pattern)
     for name, pattern in STRATEGY_FILES_IID
 ]
-TUNING_SEEDS = [14, 71, 130]
+TUNING_SEEDS = [1001, 1002, 1003]
 ETA_L_VALUES = [0.001, 0.005, 0.01, 0.15, 0.2, 0.25, 0.3, 0.35]
 
 EXAMPLE_TABLE = r"""
@@ -81,8 +82,7 @@ def strategy():
     for dist, strategies, name in (
             ("iid", STRATEGY_FILES_IID, "strategy_comparison_iid"),
             ("non_iid", STRATEGY_FILES_NON_IID, "strategy_comparison_non_iid")):
-        sim_dir = (Path(paths.STRATEGY_FED) / dist / "simulations"
-                   / "simulation_experiments")
+        sim_dir = Path(paths.STRATEGY_FED) / dist
         lines = []
         for label, pattern in strategies:
             vals = loaders.server_final(sim_dir, pattern, SEEDS, FINAL_ROUND)
@@ -146,7 +146,7 @@ def quality(regime="OU", variants=("no_memory", "ema")):
     la sua varianza si'.
     """
     reg = memory.REGIMES[regime]
-    out = Path(paths.ensure(reg.out))
+    out = Path(paths.ensure(reg.tables))
     stats = {(v, t): memory.quality_stats(reg, t, v)
              for v in variants for t in reg.thresholds}
     ref = reg.thresholds[0]
@@ -290,7 +290,7 @@ def savings(regime="OU", thresholds=(0.015, 0.05, 0.2)):
     larga e' 0.2, che c'e' da entrambe le parti.
     """
     reg = memory.REGIMES[regime]
-    out = Path(paths.ensure(reg.out))
+    out = Path(paths.ensure(reg.tables))
 
     def federated(t, v):
         return loaders.calibration_map(memory.sweep_files(reg, t, v))
@@ -350,7 +350,7 @@ def savings(regime="OU", thresholds=(0.015, 0.05, 0.2)):
 def drift(regime="OU"):
     """Ricalibrazioni del centralizzato con e senza deriva, appaiate per seed."""
     reg = memory.REGIMES[regime]
-    out = Path(paths.ensure(reg.out))
+    out = Path(paths.ensure(reg.tables))
 
     def total(sub, seed):
         f = glob.glob(f"{paths.CEN_MITIGATED}/{sub}/*seed{seed}.json")
@@ -426,7 +426,7 @@ def parameters(regime="OU"):
     perche' tutte le altre tabelle si producono senza.
     """
     reg = memory.REGIMES[regime]
-    out = Path(paths.ensure(reg.out))
+    out = Path(paths.ensure(reg.tables))
 
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     import torch

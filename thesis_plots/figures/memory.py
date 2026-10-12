@@ -7,8 +7,9 @@ finestra di coda per le statistiche di plateau e la spaziatura dei marcatori.
 Tutto il resto e' identico, quindi il regime e' un parametro e non una copia
 dello script.
 
-Le figure e le tabelle di questo modulo finiscono in NEW_THESIS_IMAGES/ (OU) o
-NEW_THESIS_IMAGES_RW/ (random walk).
+Le figure dello sweep OU finiscono in thesis_images/4_3_FINAL/ e le sue
+tabelle in thesis_images/tables/; la campagna random walk, che resta fuori
+dalla tesi, tiene entrambe in NEW_THESIS_IMAGES_RW/.
 """
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,7 +37,9 @@ class Regime:
     tail: int           # round di coda su cui si leggono qualita' e stabilita'
     mark_every: int
     duration: int       # round della campagna, per i tassi in tabella
-    out: str
+    out: str            # cartella delle figure impaginate
+    extra: str = None   # cartella dei tagli diagnostici; None: la stessa
+    tables: str = None  # cartella dei .tex/.csv; None: la stessa delle figure
     seeds: list = None  # None: nessun filtro, le cartelle hanno gia' 7 seed
     centralized: bool = False   # esiste il blocco centralizzato in tabella
 
@@ -57,6 +60,8 @@ REGIMES = {
         mark_every=8,
         duration=40,
         out=paths.MEMORY_OUT_OU,
+        extra=paths.EXTRA,
+        tables=paths.MEMORY_TABLES_OU,
         centralized=True,
     ),
     "RW": Regime(
@@ -75,6 +80,8 @@ REGIMES = {
         mark_every=2,
         duration=10,
         out=paths.MEMORY_OUT_RW,
+        extra=paths.MEMORY_OUT_RW,
+        tables=paths.MEMORY_TABLES_RW,
         seeds=list(range(1, 8)),
     ),
 }
@@ -87,13 +94,13 @@ REGIMES = {
 # legge una sola copia di ciascuna, e dall'ou_sweep solo 0.08 e 0.12, che
 # stanno unicamente li'.
 CEN_MEMORY_DIR = {
-    0.005: "MEMORY_RESULTS_OLD/memory_centralized/thresh_0005",
-    0.015: "MEMORY_RESULTS_OLD/memory_centralized/thresh_0015",
-    0.03: "MEMORY_RESULTS_OLD/memory_centralized/thresh_003",
-    0.05: "MEMORY_RESULTS_OLD/memory_centralized/thresh_005",
-    0.08: "MEMORY_RESULTS_OLD/memory_centralized_ou_sweep/thresh_008",
-    0.12: "MEMORY_RESULTS_OLD/memory_centralized_ou_sweep/thresh_012",
-    0.2: "MEMORY_RESULTS_OLD/memory_centralized/thresh_02",
+    0.005: f"{paths.CEN_MEMORY}/thresh_0005",
+    0.015: f"{paths.CEN_MEMORY}/thresh_0015",
+    0.03: f"{paths.CEN_MEMORY}/thresh_003",
+    0.05: f"{paths.CEN_MEMORY}/thresh_005",
+    0.08: f"{paths.CEN_MEMORY_OU_SWEEP}/thresh_008",
+    0.12: f"{paths.CEN_MEMORY_OU_SWEEP}/thresh_012",
+    0.2: f"{paths.CEN_MEMORY}/thresh_02",
 }
 CEN_DURATION = 30
 
@@ -107,23 +114,34 @@ def sweep_files(reg, threshold, variant):
     return [f for f in files if loaders.seed_of(f) in keep]
 
 
+# I tre tagli dello sweep che entrano in 4.3: tutto il resto che questo
+# modulo produce e' diagnostico e finisce fra le figure esplorative.
+IN_THESIS = {
+    "04_threshold_sweep",
+    "04_calibration_savings_vs_round",
+    "04_weight_distance",
+}
+
+
 def _out(reg, name):
-    return f"{paths.ensure(reg.out)}/{name}"
+    base = reg.out if name in IN_THESIS else (reg.extra or reg.out)
+    return f"{paths.ensure(base)}/{name}"
 
 
 # =====================================================================
 # Costo: ricalibrazioni contro soglia e contro round
 # =====================================================================
 
-def threshold_sweep(reg, logscale=False):
+def threshold_sweep(reg, logscale=True):
     """Ricalibrazioni totali contro soglia, una curva per variante di memoria.
 
     Asse x categorico: le soglie sono equispaziate a prescindere dal valore,
     come nelle figure gia' in tesi. Su asse numerico le prime tre si
     accavallerebbero, e il logaritmo renderebbe la spaziatura poco leggibile.
-    L'asse y resta lineare, come le altre figure del capitolo: il prezzo e' che
-    alle soglie larghe i conteggi si schiacciano, ma il messaggio e' il calo,
-    non il valore assoluto, che sta in tabella.
+    L'asse y e' logaritmico: i conteggi coprono due ordini di grandezza e su
+    scala lineare le soglie larghe si schiacciano sullo zero, dove sta invece
+    la differenza fra le varianti di memoria. La banda MAD viene tagliata a
+    0.5 per non far scendere il bordo inferiore a valori non rappresentabili.
     """
     fig, ax = ts.single()
     x = np.arange(len(reg.thresholds))
@@ -144,6 +162,50 @@ def threshold_sweep(reg, logscale=False):
     ax.set_ylabel("Total calibrations")
     ax.legend(frameon=False, fontsize=9, loc="upper right")
     ts.save(fig, _out(reg, "04_threshold_sweep_median_mad"))
+
+
+def threshold_sweep_inset(reg, zoom_from=0.05):
+    """Stessa figura su asse y lineare, con un inset sulle soglie larghe.
+
+    E' questa la versione impaginata in 4.3 (verificato sul PDF consegnato):
+    l'asse principale resta lineare e la parte informativa (soglie >= 0.05, dove la
+    memoria dimezza le calibrazioni) si legge nel riquadro. Il limite
+    superiore dell'inset segue la banda MAD piu' alta della regione, non un
+    valore fisso: a 0.05 no_memory arriva a 227 nel regime OU e un ylim da 200
+    la taglierebbe.
+    """
+    fig, ax = ts.single()
+    x = np.arange(len(reg.thresholds))
+    zoom = [i for i, t in enumerate(reg.thresholds) if t >= zoom_from]
+    axins = ax.inset_axes([0.50, 0.45, 0.47, 0.50])
+    top = 0.0
+    for v in reg.variants:
+        totals = [loaders.total_calibrations(sweep_files(reg, t, v))
+                  for t in reg.thresholds]
+        med = np.array([np.median(c) for c in totals])
+        dev = np.array([loaders.mad(c) for c in totals])
+        color = palette.VAR_COLOR[v]
+        marker = palette.VAR_MARKER[v]
+        ax.plot(x, med, color=color, lw=ts.LINEWIDTH, label=reg.labels[v],
+                marker=marker, ms=5)
+        draw.band(ax, x, med, dev, color)
+        axins.plot(x, med, color=color, lw=ts.LINEWIDTH, marker=marker, ms=4)
+        draw.band(axins, x, med, dev, color)
+        top = max(top, float((med + dev)[zoom].max()))
+
+    axins.set_xlim(zoom[0] - 0.3, zoom[-1] + 0.3)
+    axins.set_ylim(0, 1.05 * top)
+    axins.set_xticks(zoom)
+    axins.set_xticklabels([str(reg.thresholds[i]) for i in zoom])
+    axins.tick_params(labelsize=7, direction="in")
+    ax.indicate_inset_zoom(axins, edgecolor="0.5", lw=0.6, alpha=0.8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(t) for t in reg.thresholds])
+    ax.set_xlabel(r"CDR threshold $\epsilon_{\mathrm{th}}$")
+    ax.set_ylabel("Total calibrations")
+    ax.legend(frameon=False, fontsize=9, loc="lower left")
+    ts.save(fig, _out(reg, "04_threshold_sweep"))
 
 
 def cumulative(reg):
@@ -389,18 +451,12 @@ REGIME_ARMS = (("noiseless", "Noiseless", "tab:blue", "s"),
 def strategy_sources(reg, strat, regime):
     """Cartella dei JSON per (strategia, regime) sotto deriva OU.
 
-    FedAvg non e' in strategies_OU_drift_10r: le sue run stanno altrove. Il
-    mitigato viene dallo sweep a 40 round con soglia 0.015 e no_memory, che ha
-    configurazione identica alle altre strategie e di cui si usano i primi 10
-    round; il confronto resta quindi controllato.
+    Tutte le strategie hanno la stessa forma. Del braccio mitigato di FedAvg si
+    usano i primi 10 round: e' la soglia 0.015 dello sweep, che gira per 40.
     """
     if regime == "noiseless":
         return f"{paths.IID}/{strat}/noiseless"
-    if strat != "fedavg":
-        return f"{paths.DRIFT_OU}/iid/{strat}/{regime}"
-    if regime == "noisy":
-        return f"{reg.sweep}/noisy_10r"
-    return f"{reg.sweep}/thresh_0015/no_memory"
+    return f"{paths.DRIFT_OU}/iid/{strat}/{regime}"
 
 
 def strategy_drift(reg=None):
@@ -411,7 +467,7 @@ def strategy_drift(reg=None):
     per non cambiare file che stanno gia' nella cartella della campagna.
     """
     reg = reg or REGIMES["OU"]
-    outdir = Path(paths.ensure(f"{reg.out}/strategies_drift_plots"))
+    outdir = Path(paths.ensure(f"{reg.extra or reg.out}/strategies_drift_plots"))
     for strat in palette.STRATEGY_NAMES:
         arms = {label: (loaders.client_metrics(
                             loaders.run_files(strategy_sources(reg, strat, regime)),
@@ -565,6 +621,8 @@ def all_figures(regime="OU"):
     """Le figure di una campagna, nell'ordine in cui venivano prodotte."""
     reg = REGIMES[regime]
     print(f">>> Regime {reg.name}, output in {reg.out}/")
+    # La versione con inset e' quella impaginata, la piana resta per confronto.
+    threshold_sweep_inset(reg)
     threshold_sweep(reg)
     savings(reg)
     cumulative(reg)
@@ -578,6 +636,8 @@ def all_figures(regime="OU"):
 
 FIGURES = {
     "memory.ou": lambda: all_figures("OU"),
+    "memory.thresh_inset": lambda: [threshold_sweep_inset(REGIMES[r])
+                                    for r in ("OU", "RW")],
     "memory.rw": lambda: all_figures("RW"),
     "memory.strategy_drift": strategy_drift,
     "memory.cdr_sweep": cdr_sweep,

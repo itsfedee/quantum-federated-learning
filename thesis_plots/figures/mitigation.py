@@ -59,7 +59,7 @@ def fedavg():
         ("Mitigated (drift)",
          loaders.read_federated(f"{paths.DRIFT_RW}/mit_iid/fedavg"),
          palette.MITIGATED, "-", "^", 2),
-    ], str(out / "04_fedavg_noisy_vs_mitigated_drift_p005"))
+    ], f"{paths.ensure(paths.EXTRA)}/04_fedavg_noisy_vs_mitigated_drift_p005_RW")
 
     # Stessa configurazione, ma con deriva di Ornstein-Uhlenbeck invece del
     # random walk: il rumore torna verso il valore base con theta = 0.3 invece
@@ -71,12 +71,16 @@ def fedavg():
         ("Mitigated (drift)",
          loaders.read_federated(paths.MITIGATED_OU_10R, max_round=10),
          palette.MITIGATED, "-", "^", 2),
-    ], str(out / "04_fedavg_noisy_vs_mitigated_drift_OU_p005"))
+    ], str(out / "04_fedavg_noisy_vs_mitigated_drift_p005"))
 
 
 def panels():
-    """04_fedavg_mit e 04_fedavg_mit_drift, dai valori client grezzi."""
-    out = Path(paths.ensure(paths.FIG_MITIGATION_431))
+    """04_fedavg_mit e 04_fedavg_mit_drift, dai valori client grezzi.
+
+    Sono il taglio alternativo delle curve di 4.3, quello per cliente: non
+    entrano nella tesi e stanno fra le figure esplorative.
+    """
+    out = Path(paths.ensure(paths.EXTRA))
     centr = loaders.centralized_arms(paths.CENTRALIZED, SEEDS, n_epochs=10)
     noiseless = loaders.client_arms(f"{BASE}/noiseless", SEEDS)
 
@@ -211,7 +215,7 @@ def loss_vs_p():
     ax.legend(frameon=False, fontsize=7.5, loc="upper right")
 
     ts.save(fig, f"{paths.ensure(paths.FIG_MITIGATION_431)}"
-                 f"/04_loss_vs_p_and_convergence_speedup")
+                 f"/04_mitigation_vs_p")
 
 
 # =====================================================================
@@ -222,31 +226,62 @@ REGRESSION_LEVELS = [0.005, 0.014, 0.035]
 REGRESSION_SEED = 1
 
 
+def cdr_training_points(p, seed, scale=0.002, client_id=0,
+                        n_training_samples=120, nshots_cdr=30000, cdr_seed=40,
+                        nshots_model=1000, x_input=None):
+    """Punti di training della mappa CDR e coefficienti del fit.
+
+    Costruisce il modello con il canale di rumore a livello p, lo valuta una
+    volta su un punto qualsiasi per far costruire la mappa al mitigatore, e
+    ne restituisce i punti di training insieme alla retta che li interpola.
+    Richiede qibo: l'import sta qui dentro perche' tutte le altre figure di
+    questo modulo si producono senza.
+    """
+    import torch
+
+    from qibo_qfl_pt.task import (build_noise_model, create_model, set_seed)
+
+    set_seed(seed)
+    noise_model, readout_prob = build_noise_model(
+        pauli_base=p, readout_base=p, partition_id=client_id, scale=scale,
+    )
+    single = np.array([[1 - readout_prob, readout_prob],
+                       [readout_prob, 1 - readout_prob]])
+    mitigation_config = {
+        "threshold": 0.1, "min_iterations": 500, "method": "CDR",
+        "method_kwargs": {
+            "n_training_samples": n_training_samples,
+            "nshots": nshots_cdr, "seed": cdr_seed,
+            "readout": {"response_matrix": np.kron(single, single)},
+        },
+    }
+    model = create_model(model_type="quantum", nshots=nshots_model,
+                         noise_model=noise_model,
+                         mitigation_config=mitigation_config)
+
+    x = torch.tensor(x_input or [[0.5, 0.3]], dtype=torch.float64)
+    with torch.no_grad():
+        model(x)
+
+    mitigator = model.q_model.decoding.mitigator
+    train_data = mitigator._training_data
+    popt = mitigator._mitigation_map_popt
+    return (np.array(train_data["noisy"]), np.array(train_data["noise-free"]),
+            float(popt[0]), float(popt[1]))
+
+
 def regression():
     """Punti di training della CDR, noisy contro noise-free, e retta di fit.
 
-    Il disegno lo fa plot_cdr_noise_map di run_experiments/plot_metrics.py:
-    qui si compone la figura a tre pannelli e si riscrive la legenda, che
-    nell'originale e' larga quanto il pannello e sborda. Richiede qibo.
+    Tre pannelli, uno per livello di rumore. Richiede qibo.
     """
-    import sys
-
-    sys.path.insert(0, "run_experiments")
-    from plot_metrics import plot_cdr_noise_map
-
     fig, axes = ts.panels(3)
     for ax, p in zip(axes, REGRESSION_LEVELS):
-        noisy, noisefree, a, b = plot_cdr_noise_map(
-            pauli_base=p, readout_base=p, seed=REGRESSION_SEED, ax=ax,
-            title=f"$p = {p}$")
-        leg = ax.get_legend()
-        if leg is not None:
-            leg.remove()
-        # Punti e retta erano dimensionati per una figura tre volte piu' larga.
-        for coll in ax.collections:
-            coll.set_sizes([4])
-        for line in ax.lines:
-            line.set_linewidth(1.0)
+        noisy, noisefree, a, b = cdr_training_points(p, REGRESSION_SEED)
+
+        ax.scatter(noisy, noisefree, color="blue", alpha=0.5, s=4)
+        x_fit = np.linspace(noisy.min(), noisy.max(), 100)
+        ax.plot(x_fit, a * x_fit + b, color="red", linewidth=1.0)
 
         # R^2 del fit effettivamente applicato, non di una regressione
         # ricalcolata.
@@ -307,7 +342,7 @@ def static_threshold():
     ax.set_xlim(rounds[0], rounds[-1])
     ax.tick_params(direction="in")
     ax.legend(frameon=False, fontsize=9, loc="upper right")
-    ts.save(fig, f"{paths.ensure(paths.FIG_MITIGATION)}"
+    ts.save(fig, f"{paths.ensure(paths.EXTRA)}"
                  f"/04_fedavg_static_loss_thresh_0015_vs_003")
 
 

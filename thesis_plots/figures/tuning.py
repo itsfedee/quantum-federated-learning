@@ -90,8 +90,9 @@ def per_strategy(profile="iid"):
 
     pdf_dir = None
     if cfg.get("pdf_name"):
-        # I PDF per la tesi stanno in una sottocartella, col nome del documento.
-        pdf_dir = Path(paths.ensure(out / "pdf"))
+        # I PDF per la tesi vanno nella cartella di 4.1, col nome del
+        # documento; nella cartella della campagna resta la coppia di lavoro.
+        pdf_dir = Path(paths.ensure(paths.FINAL_041))
 
     for strat, configs in data.items():
         fig, axes = ts.panels(3)
@@ -131,7 +132,8 @@ def per_strategy(profile="iid"):
 def grid(profile="non_iid"):
     """Pannello 2x2 della loss, quattro strategie, legenda unica condivisa."""
     cfg = PROFILES[profile]
-    out = _out_dir(profile)
+    # Le griglie e lo sweep di FedAvg sono figure dell'appendice.
+    out = Path(paths.ensure(paths.FINAL_06))
     selected = _selected(profile)
     data = loaders.load_tuning(cfg["dir"], SEEDS, STRATEGIES,
                                keep=GRID_STRATEGIES)
@@ -169,7 +171,7 @@ def grid(profile="non_iid"):
 def fedavg(profile="non_iid"):
     """FedAvg: un solo pannello, sweep di eta_l."""
     cfg = PROFILES[profile]
-    out = _out_dir(profile)
+    out = Path(paths.ensure(paths.FINAL_06))
     selected = _selected(profile)["fedavg"]
 
     configs = defaultdict(list)
