@@ -254,7 +254,9 @@ class StrategyWithMetrics:
         with open(self.metrics_filename, "w") as f:
             json.dump({"info": self.run_info, "rounds": []}, f, indent=3)
         
-        # Round 0 (valutazione server)
+        # Round 0: il modello iniziale, prima di qualunque addestramento.
+        # Si valuta come in tutti gli altri round, lato server e lato client,
+        # cosi' le curve partono da t = 0 senza bisogno di riempirlo dopo.
         self._last_train_eval_server = None
         if evaluate_fn:
             res = evaluate_fn(0, initial_arrays)
@@ -264,6 +266,19 @@ class StrategyWithMetrics:
             res = train_evaluate_fn(0, initial_arrays)
             if res is not None:
                 self._last_train_eval_server = dict(res)
+
+        # Valutazione client. La selezione dei client e' quella ordinaria:
+        # il campionamento circolare parte dal round 0 invece che dal 1.
+        if self.fraction_evaluate > 0:
+            evaluate_messages = self.configure_evaluate(0, initial_arrays, evaluate_config, grid)
+            if evaluate_messages:
+                evaluate_replies = grid.send_and_receive(messages=evaluate_messages, timeout=timeout)
+
+                agg_evaluate_metrics = self.aggregate_evaluate(0, evaluate_replies)
+                if agg_evaluate_metrics is not None:
+                    result.evaluate_metrics_clientapp[0] = agg_evaluate_metrics
+                    log(INFO, f" └──> Round 0 eval metrics: {dict(agg_evaluate_metrics)}")
+
         self._save_round_metrics(0, result)
         
         # Ciclo dei Round
