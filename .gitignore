@@ -1,9 +1,3 @@
-# Nel repository entra solo il codice: dati, risultati e figure restano locali.
-#
-# La regola e' inversa rispetto al solito: si ignora tutto quello che sta nella
-# radice e si riammette a mano il poco che serve. Cosi' una nuova cartella di
-# risultati e' ignorata di default, senza doverla aggiungere qui ogni volta.
-
 /*
 
 # --- codice e configurazione -------------------------------------------
