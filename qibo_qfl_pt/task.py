@@ -69,25 +69,26 @@ def build_noise_model(pauli_base, readout_base, partition_id, scale,
                       server_round=0, walk_sigma=0.0, walk_seed=WALK_SEED,
                       drift_type="rw", walk_theta=0.1):
 
-    # --- parte statica: identica a prima ---
+    # --- static part: unchanged ---
     rng = np.random.default_rng(seed=partition_id)
     pauli_prob = pauli_base + rng.uniform(-scale, scale)
     readout_prob = readout_base + rng.uniform(-scale, scale)
 
-    # --- parte dinamica: drift per-client sui round ---
-    # Ricostruzione stateless: il rng riparte sempre da [WALK_SEED, partition_id],
-    # quindi i primi (server_round - 1) passi sono identici a quelli dei round
-    # precedenti e l'offset evolve di un solo incremento per round.
+    # --- dynamic part: per-client drift across the rounds ---
+    # Stateless reconstruction: the rng always restarts from
+    # [WALK_SEED, partition_id], so the first (server_round - 1) steps are the
+    # same as in the previous rounds and the offset advances by one increment
+    # per round.
     if walk_sigma > 0 and server_round > 0:
         walk_rng = np.random.default_rng([walk_seed, partition_id])
         noise_steps = walk_rng.normal(0.0, walk_sigma, size=(server_round, 2))
 
         if drift_type == "rw":
-            # Random walk: offset = somma cumulativa dei passi
+            # Random walk: offset = cumulative sum of the steps
             pauli_prob += noise_steps[:, 0].sum()
             readout_prob += noise_steps[:, 1].sum()
         elif drift_type == "ou":
-            # Ornstein-Uhlenbeck: mean-reverting attorno al valore base
+            # Ornstein-Uhlenbeck: mean-reverting around the base value
             # dX = theta*(0 - X) + sigma*dW
             pauli_offset = 0.0
             readout_offset = 0.0
@@ -168,7 +169,7 @@ def build_client_config(run_config, partition_id, server_round):
 
 
 # =====================================================================
-# Modello
+# Model
 # =====================================================================
 
 HIDDEN_HYBRID = 6
@@ -190,7 +191,7 @@ class ClassicalModel(nn.Module):
 
 
 class QMLModel(nn.Module):
-    """Versione post-MLP: quantum -> MLP -> output."""
+    """Post-MLP version: quantum -> MLP -> output."""
     def __init__(self, q_model, hybrid=False):
         super().__init__()
         self.q_model = q_model
@@ -220,7 +221,7 @@ def create_model(model_type="quantum", noise_model=None, nshots=None, mitigation
         h = hidden_classical if hidden_classical is not None else HIDDEN_CLASSICAL
         return ClassicalModel(hidden=h)
 
-    # quantum o hybrid
+    # quantum or hybrid
     encoding = PhaseEncoding(nqubits=NQUBITS)
     observable = SymbolicHamiltonian((Z(0) + Z(1)) / 2, nqubits=NQUBITS)
     decoding = Expectation(
@@ -257,7 +258,7 @@ def create_trainable_layer():
 
 
 # =====================================================================
-# Pesi (per Flower)
+# Weights (for Flower)
 # =====================================================================
 
 def get_weights(model):
@@ -270,13 +271,13 @@ def set_weights(model, weights):
 
 
 # =====================================================================
-# Training e valutazione
+# Training and evaluation
 # =====================================================================
 
 
 def train_model(model, x_train, y_train, epochs=5, lr=0.2, batch_size=8, verbose=True, partition_id=None,
                 global_weights=None, proximal_mu=0.0):
-    """Addestra il modello sui dati locali con SGD (+ termine prossimale FedProx)."""
+    """Train the model on the local data with SGD (+ FedProx proximal term)."""
 
     # ── Setup: loss, optimizer ──────────────────────────────────────────
     use_logits = isinstance(model, ClassicalModel)
@@ -292,7 +293,7 @@ def train_model(model, x_train, y_train, epochs=5, lr=0.2, batch_size=8, verbose
         
     optimizer = torch.optim.SGD(param_groups)
 
-    # ── Setup: pesi globali per il termine prossimale (FedProx) ─────────
+    # ── Setup: global weights for the proximal term (FedProx) ───────────
     if proximal_mu > 0 and global_weights is not None:
         global_tensors = [torch.tensor(w, dtype=torch.float64) for w in global_weights]
     else:
@@ -303,7 +304,7 @@ def train_model(model, x_train, y_train, epochs=5, lr=0.2, batch_size=8, verbose
 
     for epoch in range(epochs):
 
-        # -- Forward + backward su mini-batch shufflati --
+        # -- Forward + backward on shuffled mini-batches --
         model.train()
         idx = torch.randperm(len(x_train))
         batch_losses = []
@@ -314,7 +315,7 @@ def train_model(model, x_train, y_train, epochs=5, lr=0.2, batch_size=8, verbose
 
             loss = loss_fn(model(x_train[b]).squeeze(-1).float(), y_train[b].float())
 
-            # FedProx: aggiungi termine prossimale (mu/2) * ||w - w_global||^2
+            # FedProx: add the proximal term (mu/2) * ||w - w_global||^2
             if global_tensors is not None:
                 prox_term = sum(
                     torch.sum((p - g) ** 2) for p, g in zip(model.parameters(), global_tensors)
@@ -325,7 +326,7 @@ def train_model(model, x_train, y_train, epochs=5, lr=0.2, batch_size=8, verbose
             optimizer.step()
             batch_losses.append(loss.item())
 
-        # -- Metriche di fine epoca --
+        # -- End of epoch metrics --
         epoch_loss = np.mean(batch_losses)
         history["loss"].append(epoch_loss)
 
@@ -343,7 +344,7 @@ def train_model(model, x_train, y_train, epochs=5, lr=0.2, batch_size=8, verbose
 
 
 def evaluate_model(model, x, y, verbose=False):
-    """Valuta il modello: restituisce (loss, accuracy, f1)."""
+    """Evaluate the model: returns (loss, accuracy, f1)."""
 
     use_logits = isinstance(model, ClassicalModel)
     loss_fn = nn.BCEWithLogitsLoss() if use_logits else nn.BCELoss()
@@ -390,7 +391,7 @@ def load_data_server(ndata=500, testing=True, seed=40):
 
 
 def get_partition_id(msg, context):
-    """Estrai il partition_id dal messaggio del server o dal config del nodo."""
+    """Extract the partition_id from the server message or the node config."""
     config_record = msg.content.get("config")
     if config_record and "partition_id" in config_record:
         return config_record["partition_id"]

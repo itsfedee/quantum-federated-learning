@@ -9,12 +9,12 @@ from flwr.common.logger import log
 from logging import INFO, WARNING
 
 class StrategyWithMetrics:
-    """Mixin che aggiunge salvataggio, stampa metriche e selezione deterministica dei client."""
+    """Mixin adding metric saving and printing, and deterministic client selection."""
     
     def __init__(self, save_path: str = "results", suffix: str = "", run_info: dict | None = None,
                  sampling_seed: int = 42, training_mode: str = "federated", noise_info: dict | None = None,
                  nshots=None, model_type: str = "quantum", **kwargs):
-        # CDR memory: pop prima del super per non passarlo a FedAvg/FedAdam/etc.
+        # CDR memory: popped before super() so it is not passed on to FedAvg/FedAdam/etc.
         cdr_memory = kwargs.pop("cdr_memory", False)
         cdr_beta = float(kwargs.pop("cdr_beta", 0.0))
         cdr_mode = kwargs.pop("cdr_mode", "no_memory")
@@ -39,7 +39,7 @@ class StrategyWithMetrics:
         self.cdr_state = {}  # {partition_id: (a, b)}
         self.cdr_total_calibrations = 0  # contatore cumulativo calibrazioni
 
-        # Inizializza variabili per campionamento deterministico
+        # Initialise the variables for the deterministic sampling
         self.current_round = 0
         self.deterministic_indices = []  # Ordine deterministico degli INDICI
         self.node_id_to_index = {}       # Mapping node_id -> indice fisso
@@ -53,7 +53,7 @@ class StrategyWithMetrics:
             self.metrics_filename = self.save_path / f"{strategy_name}.json"
     
     def summary(self) -> None:
-        """Log summary con training mode e iperparametri."""
+        """Log a summary with the training mode and the hyperparameters."""
         log(INFO, "\t├──> Model type: %s", self.run_info.get("model_type", "quantum"))
         log(INFO, "\t├──> Training mode: %s", self.training_mode)
         log(INFO, "\t├──> Run info:")
@@ -63,17 +63,17 @@ class StrategyWithMetrics:
         super().summary()
 
     def _initialize_deterministic_order(self, grid: Grid):
-        """Inizializza l'ordine deterministico basato su indici fissi."""
+        """Initialise the deterministic order, based on fixed indices."""
         if not self.is_initialized:
             all_node_ids = sorted(list(grid.get_node_ids()))
             num_clients = len(all_node_ids)
             
-            # Crea mapping fisso: node_id -> indice (0, 1, 2, ...)
+            # Build the fixed mapping: node_id -> index (0, 1, 2, ...)
             for idx, node_id in enumerate(all_node_ids):
                 self.node_id_to_index[node_id] = idx
                 self.index_to_node_id[idx] = node_id
             
-            # Crea sequenza deterministicamente shufflata di INDICI
+            # Build the deterministically shuffled sequence of INDICES
             self.deterministic_indices = list(range(num_clients))
             random.seed(self.sampling_seed)
             random.shuffle(self.deterministic_indices)
@@ -82,24 +82,24 @@ class StrategyWithMetrics:
 
     
     def _get_deterministic_node_ids(self, grid: Grid, fraction: float, min_nodes: int) -> list[int]:
-        """Seleziona deterministicamente i client in base al round corrente."""
-        # Inizializza l'ordine solo al primo round
+        """Select the clients deterministically, from the current round."""
+        # Initialise the order only on the first round
         self._initialize_deterministic_order(grid)
         
-        # Parametri per la selezione
+        # Parameters of the selection
         num_clients = len(self.deterministic_indices)
         clients_per_round = max(int(num_clients * fraction), min_nodes)
         
-        # Campionamento circolare sulla sequenza shufflata di indici
-        # Round 1: prende i primi clients_per_round dalla sequenza shufflata
-        # Round 2: shifta di 1 nella sequenza shufflata
+        # Circular sampling over the shuffled sequence of indices
+        # Round 1: takes the first clients_per_round of the shuffled sequence
+        # Round 2: shifts by one along the shuffled sequence
         start_pos = (self.current_round - 1) % num_clients
         selected_positions = [(start_pos + i) % num_clients for i in range(clients_per_round)]
         
-        # Ottieni gli indici dalla sequenza shufflata
+        # Read the indices out of the shuffled sequence
         selected_indices = [self.deterministic_indices[pos] for pos in selected_positions]
         
-        # Converti indici -> node_ids
+        # Convert indices -> node_ids
         selected_node_ids = [self.index_to_node_id[idx] for idx in selected_indices]
         
         #log(INFO, f"Round {self.current_round}: positions {selected_positions} -> indices {selected_indices} -> node_ids {selected_node_ids}")
@@ -113,31 +113,31 @@ class StrategyWithMetrics:
     config: ConfigRecord,
     grid: Grid,
 ):
-        """Override per selezione deterministica dei client."""
+        """Override, for the deterministic client selection."""
         if self.fraction_train == 0.0:
             return []
         
-        # Selezione deterministica
+        # Deterministic selection
         node_ids = self._get_deterministic_node_ids(
             grid, 
             self.fraction_train, 
             self.min_train_nodes
         )
         
-        # Crea messaggi con partition_id deterministico nel config
+        # Build the messages, with a deterministic partition_id in the config
         messages = []
         for node_id in node_ids:
-            # Ottieni l'indice fisso per questo node_id
+            # Read the fixed index of this node_id
             client_index = self.node_id_to_index[node_id]
             
-            # Aggiungi partition_id al config
+            # Add partition_id to the config
             config_dict = dict(config)
             config_dict["partition_id"] = client_index  # Usa indice fisso come partition_id
             config_dict["server_round"] = server_round
             if hasattr(self, "proximal_mu"):
                 config_dict["proximal-mu"] = self.proximal_mu
 
-            # CDR memory: inietta (a, b) dal round precedente
+            # CDR memory: inject (a, b) from the previous round
             if self.cdr_memory and client_index in self.cdr_state:
                 a, b = self.cdr_state[client_index]
                 config_dict["cdr-a-init"] = a
@@ -168,29 +168,29 @@ class StrategyWithMetrics:
     config: ConfigRecord,
     grid: Grid,
 ):
-        """Override per selezione deterministica dei client (evaluation)."""
+        """Override, for the deterministic client selection (evaluation)."""
         if self.fraction_evaluate == 0.0:
             return []
         
-        # Usa gli stessi client del training
+        # Use the same clients as the training
         node_ids = self._get_deterministic_node_ids(
             grid, 
             self.fraction_evaluate, 
             self.min_evaluate_nodes
         )
         
-        # Crea messaggi con partition_id deterministico nel config
+        # Build the messages, with a deterministic partition_id in the config
         messages = []
         for node_id in node_ids:
-            # Ottieni l'indice fisso per questo node_id
+            # Read the fixed index of this node_id
             client_index = self.node_id_to_index[node_id]
             
-            # Aggiungi partition_id al config
+            # Add partition_id to the config
             config_dict = dict(config)
             config_dict["partition_id"] = client_index
             config_dict["server_round"] = server_round
 
-            # CDR memory: inietta (a, b) dal round precedente
+            # CDR memory: inject (a, b) from the previous round
             if self.cdr_memory and client_index in self.cdr_state:
                 a, b = self.cdr_state[client_index]
                 config_dict["cdr-a-init"] = a
@@ -225,7 +225,7 @@ class StrategyWithMetrics:
     evaluate_fn: Optional[Callable[[int, ArrayRecord], Optional[MetricRecord]]] = None,
     train_evaluate_fn: Optional[Callable[[int, ArrayRecord], Optional[MetricRecord]]] = None,
 ) -> Result:
-        """Esegue la strategia con campionamento deterministico."""
+        """Run the strategy with deterministic sampling."""
         
         log(INFO, f"Starting {self.training_mode} training with {self.__class__.__name__}")
         self.summary()
@@ -236,8 +236,8 @@ class StrategyWithMetrics:
         result = Result()
         arrays = initial_arrays
         
-        # Inizializza lo stato della strategia (importante per FedAdam, FedYogi, ecc.)
-        # Converti ArrayRecord in dizionario di numpy arrays
+        # Initialise the strategy state (it matters for FedAdam, FedYogi, ...)
+        # Convert the ArrayRecord into a dict of numpy arrays
         self.current_arrays = {
             k: v for k, v in zip(
                 initial_arrays.keys(),
@@ -245,7 +245,7 @@ class StrategyWithMetrics:
             )
         }
         
-        # Inizializza il file JSON
+        # Initialise the JSON file
         self.run_info["cdr_mode"] = self.cdr_mode
         if self.cdr_threshold is not None:
             self.run_info["cdr_threshold"] = self.cdr_threshold
@@ -254,9 +254,9 @@ class StrategyWithMetrics:
         with open(self.metrics_filename, "w") as f:
             json.dump({"info": self.run_info, "rounds": []}, f, indent=3)
         
-        # Round 0: il modello iniziale, prima di qualunque addestramento.
-        # Si valuta come in tutti gli altri round, lato server e lato client,
-        # cosi' le curve partono da t = 0 senza bisogno di riempirlo dopo.
+        # Round 0: the initial model, before any training at all.
+        # It is evaluated as in every other round, on the server and on the
+        # clients, so the curves start at t = 0 with no need to fill it in later.
         self._last_train_eval_server = None
         if evaluate_fn:
             res = evaluate_fn(0, initial_arrays)
@@ -267,8 +267,8 @@ class StrategyWithMetrics:
             if res is not None:
                 self._last_train_eval_server = dict(res)
 
-        # Valutazione client. La selezione dei client e' quella ordinaria:
-        # il campionamento circolare parte dal round 0 invece che dal 1.
+        # Client evaluation. The client selection is the ordinary one: the
+        # circular sampling starts from round 0 instead of round 1.
         if self.fraction_evaluate > 0:
             evaluate_messages = self.configure_evaluate(0, initial_arrays, evaluate_config, grid)
             if evaluate_messages:
@@ -281,7 +281,7 @@ class StrategyWithMetrics:
 
         self._save_round_metrics(0, result)
         
-        # Ciclo dei Round
+        # Round loop
         for self.current_round in range(1, num_rounds + 1):
             log(INFO, f"\n[ROUND {self.current_round}/{num_rounds}]")
             
@@ -291,7 +291,7 @@ class StrategyWithMetrics:
             
             agg_arrays, agg_train_metrics = self.aggregate_train(self.current_round, train_replies)
             
-            # Estrai drift per-client dalle risposte
+            # Pull the per-client drift out of the replies
             client_drifts = []
             client_drifts_by_id = {}
             for reply in train_replies:
@@ -317,7 +317,7 @@ class StrategyWithMetrics:
             else:
                 self._last_drift_metrics = None
 
-            # Estrai la noise map REALMENTE USATA in training, per-client (no media)
+            # Pull the noise map ACTUALLY USED in training, per client (no average)
             cdr_train = []
             for reply in train_replies:
                 if not reply.has_content():
@@ -333,7 +333,7 @@ class StrategyWithMetrics:
                         entry["n_maps"] = int(m["cdr_n_maps"])
                     if "cdr_n_checks" in m:
                         entry["n_checks"] = int(m["cdr_n_checks"])
-                    # Check log diagnostico
+                    # Diagnostic check log
                     cl = reply.content.get("cdr_check_log", {})
                     if "data" in cl:
                         import json as _json
@@ -341,15 +341,15 @@ class StrategyWithMetrics:
                     cdr_train.append(entry)
             self._last_cdr_train_metrics = cdr_train if cdr_train else None
 
-            # Conteggio cumulativo calibrazioni (train)
+            # Cumulative count of the calibrations (train)
             round_calibrations = sum(e.get("n_maps", 0) for e in cdr_train)
             self.cdr_total_calibrations += round_calibrations
             if round_calibrations > 0:
                 calibrated_clients = [e["client"] for e in cdr_train if e.get("n_maps", 0) > 0]
                 log(INFO, f" └──> CDR calibrations this round: {round_calibrations} (clients {calibrated_clients}), total: {self.cdr_total_calibrations}")
 
-            # CDR memory: aggiorna lo stato (a, b) per-client
-            # beta=0 -> naive (ultimo fit); beta>0 -> EMA
+            # CDR memory: update the per-client (a, b) state
+            # beta=0 -> naive (last fit); beta>0 -> EMA
             if self.cdr_memory:
                 for entry in cdr_train:
                     pid = entry["client"]
@@ -367,7 +367,7 @@ class StrategyWithMetrics:
             if agg_arrays is not None:
                 arrays = agg_arrays
                 result.arrays = agg_arrays
-                # Aggiorna current_arrays per strategie adaptive
+                # Update current_arrays, for the adaptive strategies
                 self.current_arrays = {
                     k: v for k, v in zip(
                         agg_arrays.keys(),
@@ -388,8 +388,8 @@ class StrategyWithMetrics:
                     result.evaluate_metrics_clientapp[self.current_round] = agg_evaluate_metrics
                     log(INFO, f" └──> Eval metrics: {dict(agg_evaluate_metrics)}")
 
-                # Estrai (a,b) CDR per-client dalle risposte di eval (come si fa col drift,
-                # niente media: l'aggregato collasserebbe i client in un valore solo).
+                # Pull the per-client CDR (a, b) out of the eval replies, as is done
+                # for the drift: no average, which would collapse the clients into one.
                 cdr_per_client = []
                 for reply in evaluate_replies:
                     if not reply.has_content():
@@ -401,12 +401,12 @@ class StrategyWithMetrics:
                             "a": float(m["cdr_a"]),
                             "b": float(m["cdr_b"]),
                         }
-                        # Scatter in record separato (non nel MetricRecord)
+                        # Scatter in a separate record (not in the MetricRecord)
                         scatter = reply.content.get("cdr_scatter", {})
                         if "cdr_noisy" in scatter and "cdr_noisefree" in scatter:
                             entry["noisy"] = list(scatter["cdr_noisy"])
                             entry["noisefree"] = list(scatter["cdr_noisefree"])
-                        # Check log diagnostico
+                        # Diagnostic check log
                         cl = reply.content.get("cdr_check_log", {})
                         if "data" in cl:
                             import json as _json
@@ -414,26 +414,26 @@ class StrategyWithMetrics:
                         cdr_per_client.append(entry)
                 self._last_cdr_metrics = cdr_per_client if cdr_per_client else None
             
-            # Valutazione server
+            # Server evaluation
             if evaluate_fn:
                 res = evaluate_fn(self.current_round, arrays)
                 if res is not None:
                     result.evaluate_metrics_serverapp[self.current_round] = res
 
-            # Valutazione server sul train set
+            # Server evaluation on the training set
             self._last_train_eval_server = None
             if train_evaluate_fn:
                 res = train_evaluate_fn(self.current_round, arrays)
                 if res is not None:
                     self._last_train_eval_server = dict(res)
 
-            # Salvataggio metriche
+            # Saving the metrics
             self._save_round_metrics(self.current_round, result)
         
         log(INFO, f"\nTraining completed! Metrics saved in {self.save_path}")
         if self.cdr_total_calibrations > 0:
             log(INFO, f"CDR total calibrations (train): {self.cdr_total_calibrations}")
-            # Salva il totale nel JSON
+            # Save the total in the JSON
             with open(self.metrics_filename, "r+") as f:
                 data = json.load(f)
                 data["info"]["cdr_total_calibrations"] = self.cdr_total_calibrations
@@ -452,22 +452,22 @@ class StrategyWithMetrics:
             "eval_metrics_server": dict(result.evaluate_metrics_serverapp.get(current_round, {})),
         }
 
-        # Train eval server (modello globale valutato sul train set)
+        # Train eval server (the global model evaluated on the training set)
         if hasattr(self, "_last_train_eval_server") and self._last_train_eval_server is not None:
             round_data["train_eval_server"] = self._last_train_eval_server
             self._last_train_eval_server = None
         
-        # Aggiungi drift metrics se disponibili
+        # Add the drift metrics when available
         if hasattr(self, "_last_drift_metrics") and self._last_drift_metrics is not None:
             round_data["drift_metrics"] = self._last_drift_metrics
             self._last_drift_metrics = None
 
-        # Aggiungi (a,b) CDR per-client se disponibili
+        # Add the per-client CDR (a, b) when available
         if hasattr(self, "_last_cdr_metrics") and self._last_cdr_metrics is not None:
             round_data["cdr_per_client"] = self._last_cdr_metrics
             self._last_cdr_metrics = None
 
-        # Aggiungi la noise map USATA in training (per-client) se disponibile
+        # Add the noise map USED in training (per client) when available
         if hasattr(self, "_last_cdr_train_metrics") and self._last_cdr_train_metrics is not None:
             round_data["cdr_train_per_client"] = self._last_cdr_train_metrics
             self._last_cdr_train_metrics = None
@@ -483,7 +483,7 @@ class StrategyWithMetrics:
 
 
 class fedavg(StrategyWithMetrics, FedAvg):
-    """FedAvg con salvataggio e stampa delle metriche."""
+    """FedAvg, with metric saving and printing."""
     def __init__(self, seed, num_rounds, num_clients, local_epochs, iid, alpha,
                  eta_l=None, sampling_seed=None, init_seed=None, data_seed=None, run_id=None, **kwargs):
         run_info = {
@@ -512,7 +512,7 @@ class fedavg(StrategyWithMetrics, FedAvg):
 
 
 class fedadam(StrategyWithMetrics, FedAdam):
-    """FedAdam con salvataggio e stampa delle metriche."""
+    """FedAdam, with metric saving and printing."""
     def __init__(self, seed, eta, eta_l, num_rounds, num_clients, local_epochs, iid, alpha,
                  sampling_seed=None, run_id=None, init_seed=None, data_seed=None, **kwargs):
         run_info = {
@@ -596,7 +596,7 @@ class fedyogi(StrategyWithMetrics, FedYogi):
 
 
 class fedprox(StrategyWithMetrics, FedProx):
-    """FedProx con salvataggio e stampa delle metriche."""
+    """FedProx, with metric saving and printing."""
     def __init__(self, seed, mu, num_rounds, num_clients, iid, alpha, local_epochs,
                  eta_l=None, sampling_seed=None, run_id=None, init_seed=None, data_seed=None, **kwargs):
         seed_label = kwargs.pop("seed_label", None) or f"seed{seed}"

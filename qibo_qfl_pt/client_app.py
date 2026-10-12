@@ -20,11 +20,11 @@ app = ClientApp()
 
 
 # ---------------------------------------------------------------------------
-#  Helper: estrai parametri CDR dal mitigator del modello quantistico
+#  Helper: pull the CDR parameters out of the quantum model's mitigator
 # ---------------------------------------------------------------------------
 
 def _extract_cdr_metrics(model, include_training_data=False):
-    """Legge i parametri CDR (a, b) dal mitigator, se presente.
+    """Read the CDR parameters (a, b) from the mitigator, when there is one.
 
     Returns un dict (possibilmente vuoto) con le metriche CDR.
     """
@@ -60,7 +60,7 @@ def _extract_cdr_metrics(model, include_training_data=False):
                 metrics["cdr_noisy"] = [float(v) for v in td["noisy"]]
                 metrics["cdr_noisefree"] = [float(v) for v in td["noise-free"]]
 
-        # Check log diagnostico (patch 4)
+        # Diagnostic check log (patch 4)
         check_log = getattr(mitigator, "_check_log", None)
         if check_log:
             metrics["_check_log"] = check_log
@@ -79,7 +79,7 @@ def _extract_cdr_metrics(model, include_training_data=False):
 def train(msg: Message, context: Context):
     """Train the model on local data."""
 
-    # ── 1. Leggo i parametri di configurazione ──────────────────────────
+    # ── 1. Read the configuration parameters ────────────────────────────
     seed = int(context.run_config["seed"])
     data_seed = int(context.run_config.get("data-seed", seed))
     set_seed(seed)
@@ -95,7 +95,7 @@ def train(msg: Message, context: Context):
     partition_id = get_partition_id(msg, context)
     server_round = get_server_round(msg, context)
 
-    # ── 2. Creo il modello ──────────────────────────────────────────────
+    # ── 2. Create the model ─────────────────────────────────────────────
     noise_model, mitigation_config, nshots = build_client_config(
         context.run_config, partition_id, server_round,
     )
@@ -106,16 +106,16 @@ def train(msg: Message, context: Context):
         hidden_classical=hidden_classical,
     )
 
-    # ── 3. Ricevo i parametri globali dal server ────────────────────────
+    # ── 3. Receive the global parameters from the server ────────────────
     ndarrays = msg.content["arrays"].to_numpy_ndarrays()
     set_weights(model, ndarrays)
 
-    # CDR memory: inietta (a, b) dal round precedente se il server li ha mandati
+    # CDR memory: inject (a, b) from the previous round if the server sent them
     config = msg.content.get("config", {})
     if "cdr-a-init" in config and "cdr-b-init" in config:
         inject_cdr_map(model, config["cdr-a-init"], config["cdr-b-init"])
 
-    # EMA intra-round: se abilitato, il refit interno miscela con la mappa precedente
+    # Intra-round EMA: when enabled, the internal refit blends with the previous map
     intra_beta = float(context.run_config.get("cdr-intra-beta", 0))
     if intra_beta > 0:
         mitigator = getattr(
@@ -127,11 +127,11 @@ def train(msg: Message, context: Context):
 
     global_params = [p.clone().detach() for p in model.parameters()]
 
-    # FedProx: leggi mu dal config (le altre strategie non lo mandano → 0.0)
+    # FedProx: read mu from the config (the other strategies do not send it → 0.0)
     proximal_mu = config.get("proximal-mu", 0.0)
     global_weights = [w.copy() for w in ndarrays] if proximal_mu > 0 else None
 
-    # ── 4. Carico i dati locali ─────────────────────────────────────────
+    # ── 4. Load the local data ──────────────────────────────────────────
     x_train, y_train = load_data_client(
         partition_id,
         ndata=context.run_config["n-train-data"],
@@ -141,7 +141,7 @@ def train(msg: Message, context: Context):
         seed=data_seed,
     )
 
-    # ── 5. Training locale ──────────────────────────────────────────────
+    # ── 5. Local training ───────────────────────────────────────────────
     history = train_model(
         model, x_train, y_train, lr=lr,
         epochs=epochs, batch_size=batch_size, verbose=verbose,
@@ -149,7 +149,7 @@ def train(msg: Message, context: Context):
         global_weights=global_weights, proximal_mu=proximal_mu,
     )
 
-    # ── 6. Calcolo le metriche ──────────────────────────────────────────
+    # ── 6. Compute the metrics ──────────────────────────────────────────
     metrics = {"num-examples": len(x_train)}
     if history["loss"]:
         metrics["train_loss"] = history["loss"][-1]
@@ -158,14 +158,14 @@ def train(msg: Message, context: Context):
     if history["f1"]:
         metrics["train_f1"] = history["f1"][-1]
 
-    # Drift: distanza L2 tra parametri locali aggiornati e globali
+    # Drift: L2 distance between the updated local parameters and the global ones
     drift = sum(
         (p - gp).pow(2).sum() for p, gp in zip(model.parameters(), global_params)
     ).sqrt().item()
     metrics["drift"] = drift
     metrics["partition_id"] = partition_id
 
-    # CDR logging (rinomina chiavi con suffisso _train)
+    # CDR logging (keys renamed with a _train suffix)
     cdr = _extract_cdr_metrics(model)
     if "cdr_a" in cdr:
         metrics["cdr_a_train"] = cdr["cdr_a"]
@@ -176,10 +176,10 @@ def train(msg: Message, context: Context):
     if "cdr_n_checks" in cdr:
         metrics["cdr_n_checks"] = cdr["cdr_n_checks"]
 
-    # Estrai check_log (non va nel MetricRecord, è una lista di dict)
+    # Pull out check_log (it cannot go in the MetricRecord, it is a list of dicts)
     check_log = cdr.pop("_check_log", None)
 
-    # ── 7. Mando i parametri aggiornati al server ───────────────────────
+    # ── 7. Send the updated parameters back to the server ───────────────
     content = RecordDict({
         "arrays": ArrayRecord(get_weights(model)),
         "metrics": MetricRecord(metrics),
@@ -202,7 +202,7 @@ def train(msg: Message, context: Context):
 def evaluate(msg: Message, context: Context):
     """Evaluate the model on local data."""
 
-    # ── 1. Leggo i parametri di configurazione ──────────────────────────
+    # ── 1. Read the configuration parameters ────────────────────────────
     seed = int(context.run_config["seed"])
     data_seed = int(context.run_config.get("data-seed", seed))
     set_seed(seed)
@@ -213,7 +213,7 @@ def evaluate(msg: Message, context: Context):
     partition_id = get_partition_id(msg, context)
     server_round = get_server_round(msg, context)
 
-    # ── 2. Creo il modello ──────────────────────────────────────────────
+    # ── 2. Create the model ─────────────────────────────────────────────
     noise_model, mitigation_config, nshots = build_client_config(
         context.run_config, partition_id, server_round,
     )
@@ -223,16 +223,16 @@ def evaluate(msg: Message, context: Context):
         hidden_classical=hidden_classical,
     )
 
-    # ── 3. Ricevo i parametri globali dal server ────────────────────────
+    # ── 3. Receive the global parameters from the server ────────────────
     ndarrays = msg.content["arrays"].to_numpy_ndarrays()
     set_weights(model, ndarrays)
 
-    # CDR memory: inietta (a, b) dal round precedente se il server li ha mandati
+    # CDR memory: inject (a, b) from the previous round if the server sent them
     config = msg.content.get("config", {})
     if "cdr-a-init" in config and "cdr-b-init" in config:
         inject_cdr_map(model, config["cdr-a-init"], config["cdr-b-init"])
 
-    # EMA intra-round
+    # Intra-round EMA
     intra_beta = float(context.run_config.get("cdr-intra-beta", 0))
     if intra_beta > 0:
         mitigator = getattr(
@@ -242,7 +242,7 @@ def evaluate(msg: Message, context: Context):
         if mitigator is not None:
             mitigator._intra_ema_beta = intra_beta
 
-    # ── 4. Carico i dati di valutazione ─────────────────────────────────
+    # ── 4. Load the evaluation data ─────────────────────────────────────
     x_eval, y_eval = load_data_client(
         partition_id,
         ndata=context.run_config["n-train-data"],
@@ -254,10 +254,10 @@ def evaluate(msg: Message, context: Context):
         testing=context.run_config.get("testing", True),
     )
 
-    # ── 5. Valutazione ──────────────────────────────────────────────────
+    # ── 5. Evaluation ───────────────────────────────────────────────────
     loss, acc, f1 = evaluate_model(model, x_eval, y_eval)
 
-    # ── 6. Calcolo le metriche ──────────────────────────────────────────
+    # ── 6. Compute the metrics ──────────────────────────────────────────
     metrics = {"num-examples": len(x_eval), "loss": loss, "accuracy": acc, "f1": f1}
 
     cdr = _extract_cdr_metrics(model, include_training_data=True)
@@ -265,12 +265,12 @@ def evaluate(msg: Message, context: Context):
     check_log = None
     if cdr:
         cdr["cdr_client"] = int(partition_id)
-        # Scatter data va in un record separato (Flower non sa aggregare liste)
+        # Scatter data goes in a separate record (Flower cannot aggregate lists)
         cdr_scatter = {k: cdr.pop(k) for k in ["cdr_noisy", "cdr_noisefree"] if k in cdr}
         check_log = cdr.pop("_check_log", None)
         metrics.update(cdr)
 
-    # ── 7. Mando le metriche al server ──────────────────────────────────
+    # ── 7. Send the metrics back to the server ──────────────────────────
     content = RecordDict({
         "metrics": MetricRecord(metrics),
     })

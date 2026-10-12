@@ -1,4 +1,4 @@
-"""Utility per costruire path strutturati e scoprire esperimenti salvati."""
+"""Helpers to build structured paths and discover saved experiments."""
 
 from pathlib import Path
 from collections import defaultdict
@@ -7,7 +7,7 @@ import glob
 
 
 class ExperimentPath:
-    """Costruisce e parsa path strutturati per gli esperimenti.
+    """Builds and parses the structured paths of the experiments.
 
     Schema: results/{distribution}/{strategy}/{mode}/{noise}/nshots_{N}/
     """
@@ -23,7 +23,7 @@ class ExperimentPath:
         distribution: str = "iid",
         root: str | None = None,
     ) -> str:
-        """Costruisce il save_path dai parametri dell'esperimento.
+        """Build the save_path from the experiment parameters.
 
         Args:
             strategy: es. "fedavg", "fedadam", "fedyogi"
@@ -49,13 +49,13 @@ class ExperimentPath:
 
     @staticmethod
     def parse(path: str) -> dict:
-        """Estrae i parametri da un path strutturato.
+        """Extract the parameters from a structured path.
 
         Returns:
             dict con chiavi: distribution, strategy, mode, noise, nshots
         """
         parts = Path(path).parts
-        # Cerca il livello "nshots_*" e risale
+        # Find the "nshots_*" level and walk back up
         for i, part in enumerate(parts):
             if part.startswith("nshots_"):
                 nshots_raw = part.replace("nshots_", "")
@@ -75,7 +75,7 @@ class ExperimentPath:
 
     @staticmethod
     def noise_label(base_pauli: float, base_readout: float, scale: float = 0) -> str:
-        """Genera la stringa noise config dai parametri numerici.
+        """Build the noise config string from the numeric parameters.
 
         Args:
             base_pauli: errore Pauli base
@@ -91,7 +91,7 @@ class ExperimentPath:
 
 
 def discover_experiments(root: str | None = None) -> list[dict]:
-    """Scansiona la directory results e restituisce una lista di esperimenti trovati.
+    """Scan the results directory and return the list of experiments found.
 
     Ogni elemento è un dict con: distribution, strategy, mode, noise, nshots, n_seeds, path
 
@@ -112,12 +112,12 @@ def discover_experiments(root: str | None = None) -> list[dict]:
         if "distribution" not in info:
             continue
 
-        # Conta i seed (file che matchano *_seed*.json)
+        # Count the seeds (files matching *_seed*.json)
         seed_files = [f for f in json_files if "_seed" in f.name]
         info["n_seeds"] = len(seed_files)
         info["n_files"] = len(json_files)
         experiments.append(info)
 
-    # Ordina per avere output consistente
+    # Sort, so the output stays consistent
     experiments.sort(key=lambda x: x["path"])
     return experiments

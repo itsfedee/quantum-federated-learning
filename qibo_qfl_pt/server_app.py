@@ -26,9 +26,9 @@ strategies = {
 def main(grid: Grid, context: Context) -> None:
     """Main entry point for the ServerApp."""
 
-    # ── 1. Leggo i parametri di configurazione ──────────────────────────
+    # ── 1. Read the configuration parameters ────────────────────────────
 
-    # Param di run (numero client, numero round, ...)
+    # Run params (number of clients, number of rounds, ...)
     num_rounds = context.run_config["num-server-rounds"]
     num_clients = context.run_config["num-clients"]
     iid_flag = context.run_config["iid"]
@@ -44,7 +44,7 @@ def main(grid: Grid, context: Context) -> None:
     model_type = context.run_config.get("model-type", "quantum")
     hidden_classical = int(context.run_config.get("hidden-classical", 9))
 
-    # Param della strategia (nome, LR, ...)
+    # Strategy params (name, LR, ...)
     strategy_name = context.run_config["strategy"]
     eta = context.run_config.get("eta", 0.1)
     eta_l = context.run_config.get("eta_l", 0.1)
@@ -55,7 +55,7 @@ def main(grid: Grid, context: Context) -> None:
 
     strategy_class, param_name = strategies[strategy_name]
 
-    # Parametri di noise (quantum)
+    # Noise params (quantum)
     mode = context.run_config.get("mode", "noiseless")
 
     base_pauli = context.run_config.get("base-pauli", 0.0)
@@ -77,15 +77,15 @@ def main(grid: Grid, context: Context) -> None:
             "noise_scale": noise_scale,
             "sigma_drift": walk_sigma,
             "seed_walk": walk_seed if walk_sigma > 0 else None,
-            # Il processo di drift va registrato: senza questo campo una run
-            # archiviata non è ricostruibile (rw e ou hanno statistiche molto
-            # diverse a parità di sigma). theta serve solo per l'ou.
+            # The drift process must be recorded: without this field an
+            # archived run cannot be reconstructed (rw and ou have very
+            # different statistics at the same sigma). theta is only for ou.
             "drift_type": drift_type if walk_sigma > 0 else None,
             "walk_theta": walk_theta if (walk_sigma > 0 and drift_type == "ou") else None,
         }
 
 
-    # ── 2. Creo la strategia ────────────────────────────────────────────
+    # ── 2. Create the strategy ──────────────────────────────────────────
     save_path = context.run_config.get("save-path", "federated_results/iid/default")
     seed_label = context.run_config.get("seed-label", "") or None
 
@@ -135,14 +135,14 @@ def main(grid: Grid, context: Context) -> None:
 
     strategy = strategy_class(**strategy_kwargs)
 
-    # ── 3. Creo il modello e i pesi iniziali ────────────────────────────
+    # ── 3. Create the model and the initial weights ─────────────────────
     set_seed(init_seed)
     model = create_model(model_type=model_type, hidden_classical=hidden_classical)
     arrays = ArrayRecord(get_weights(model))
     del model
 
 
-    # ── 4. Definisco la valutazione globale ─────────────────────────────
+    # ── 4. Define the global evaluation ─────────────────────────────────
     def global_evaluate(server_round: int, arrays: ArrayRecord, testing: bool) -> MetricRecord:
         """Evaluate on centralized validation or test set."""
         x_val, y_val = load_data_server(ndata=context.run_config["n-eval-data"], testing=testing)
@@ -165,7 +165,7 @@ def main(grid: Grid, context: Context) -> None:
         gc.collect()
         return MetricRecord({"accuracy": acc, "loss": loss, "f1_score": f1})
 
-    # ── 5. Avvio la simulazione federata ────────────────────────────────
+    # ── 5. Start the federated simulation ───────────────────────────────
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
@@ -174,7 +174,7 @@ def main(grid: Grid, context: Context) -> None:
         train_evaluate_fn=global_train_evaluate,
     )
 
-    # ── 6. Salvataggio pesi finali ──────────────────────────────────────
+    # ── 6. Save the final weights ───────────────────────────────────────
     if context.run_config.get("save-weights", True):
         if param_name == "eta":
             param_str = f"_eta{eta}"
