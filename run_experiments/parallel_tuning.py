@@ -17,15 +17,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 IS_WINDOWS = platform.system() == "Windows"
 
 # =====================================================================
-# Argomenti da riga di comando
+# Command line arguments
 # =====================================================================
-# Esempi d'uso:
+# Usage examples:
 #   python parallel_tuning.py --distribution non_iid --workers 8
 #   python parallel_tuning.py --distribution iid --strategy FedProx --workers 4
 
 
 # =====================================================================
-# Griglia iperparametri per il tuning
+# Hyperparameter grid for the tuning
 # =====================================================================
 
 SEEDS = [1001, 1002, 1003]
@@ -95,11 +95,11 @@ configs = {
 
 
 # =====================================================================
-# Helper cross-platform per kill processi e cleanup
+# Cross-platform helpers to kill processes and clean up
 # =====================================================================
 
 def kill_proc_tree(pid):
-    """Killa un processo e tutti i suoi discendenti."""
+    """Kill a process and all its descendants."""
     if IS_WINDOWS:
         try:
             subprocess.run(
@@ -122,7 +122,7 @@ def kill_proc_tree(pid):
 
 
 def final_cleanup():
-    """Pulizia finale: chiude ray e killa eventuali orfani."""
+    """Final cleanup: shut ray down and kill any orphans left behind."""
     try:
         subprocess.run(["ray", "stop", "--force"], capture_output=True, timeout=30)
     except Exception:
@@ -137,7 +137,7 @@ def final_cleanup():
 
 
 # =====================================================================
-# Funzione per eseguire un singolo job di tuning
+# Function that runs a single tuning job
 # =====================================================================
 
 def run_single_job(job, timeout_sec, stagger_max=0.0):
@@ -251,25 +251,25 @@ if __name__ == '__main__':
         nargs="+",
         default=["iid"],
         choices=["iid", "non_iid"],
-        help="Distribuzione/i dati. Default: iid. Più valori possibili.",
+        help="Data distribution(s). Default: iid. Several values allowed.",
     )
     parser.add_argument(
         "--strategy",
         type=str,
         default=None,
-        help="Se specificato, tuning solo per quella strategia.",
+        help="If given, tune only that strategy.",
     )
     parser.add_argument(
         "--workers",
         type=int,
         default=1,
-        help="Quante run lanciare in parallelo. Default: 1.",
+        help="How many runs to launch in parallel. Default: 1.",
     )
     parser.add_argument(
         "--timeout",
         type=int,
         default=3600,
-        help="Timeout per singola run, in secondi. Default: 3600 (1 ora).",
+        help="Timeout for a single run, in seconds. Default: 3600 (1 hour).",
     )
     parser.add_argument(
         "--model-type",
@@ -277,7 +277,7 @@ if __name__ == '__main__':
         nargs="+",
         default=["quantum"],
         choices=["quantum", "hybrid", "classical"],
-        help="Tipo/i di modello. Default: quantum. Più valori possibili.",
+        help="Model type(s). Default: quantum. Several values allowed.",
     )
     parser.add_argument(
         "--classical-variant",
@@ -285,20 +285,20 @@ if __name__ == '__main__':
         nargs="+",
         default=None,
         choices=["3h", "9h", "9h_20cli", "all"],
-        help="Variante/i del modello classico: 3h, 9h, 9h_20cli, all. "
-             "Usato solo con --model-type classical.",
+        help="Classical model variant(s): 3h, 9h, 9h_20cli, all. "
+             "Only used with --model-type classical.",
     )
     parser.add_argument(
         "--num-rounds",
         type=int,
         default=40,
-        help="Numero di round. Default: 40.",
+        help="Number of rounds. Default: 40.",
     )
     parser.add_argument(
         "--resume-from",
         type=int,
         default=0,
-        help="Skippa i primi N job (per riprendere da dove si era interrotto).",
+        help="Skip the first N jobs (to resume where it was interrupted).",
     )
     args = parser.parse_args()
 
@@ -307,19 +307,19 @@ if __name__ == '__main__':
 
     pool_stagger = 0.0 if args.workers == 1 else 5.0 * args.workers
 
-    # Strategia
+    # Strategy
     if args.strategy is not None:
         if args.strategy not in configs:
-            print(f"ERRORE: strategia '{args.strategy}' non riconosciuta.")
-            print(f"Strategie valide: {list(configs.keys())}")
+            print(f"ERROR: strategy '{args.strategy}' not recognised.")
+            print(f"Valid strategies: {list(configs.keys())}")
             sys.exit(1)
         strategies_to_use = [args.strategy]
-        print(f">>> Strategia: {args.strategy}")
+        print(f">>> Strategy: {args.strategy}")
     else:
         strategies_to_use = list(configs.keys())
-        print(f">>> Tutte le strategie")
+        print(f">>> All strategies")
 
-    # Varianti classiche: (hidden, num_clients, label)
+    # Classical variants: (hidden, num_clients, label)
     CLASSICAL_VARIANTS = {
         "3h":       (3,  5,  "3_hidden"),
         "9h":       (9,  5,  "9_hidden"),
@@ -329,7 +329,7 @@ if __name__ == '__main__':
     print(f">>> Model types: {args.model_type}")
     if "classical" in args.model_type:
         if args.classical_variant is None:
-            print("ERRORE: con --model-type classical devi specificare --classical-variant")
+            print("ERROR: with --model-type classical you must give --classical-variant")
             sys.exit(1)
         if "all" in args.classical_variant:
             classical_variants = list(CLASSICAL_VARIANTS.keys())
@@ -341,13 +341,13 @@ if __name__ == '__main__':
     print(f">>> Seeds: {SEEDS}\n")
 
     # =================================================================
-    # Costruzione lista jobs
+    # Building the job list
     # =================================================================
 
     jobs = []
     for dist in args.distribution:
         for mt in args.model_type:
-            # Per classical, iteriamo sulle varianti
+            # For the classical model we loop over the variants
             if mt == "classical":
                 model_configs = [
                     (CLASSICAL_VARIANTS[v]) for v in classical_variants
@@ -400,17 +400,17 @@ if __name__ == '__main__':
 
     total = len(jobs)
 
-    # Resume: skippa i primi N job
+    # Resume: skip the first N jobs
     if args.resume_from > 0:
         jobs = jobs[args.resume_from:]
-        print(f"Totale jobs: {total} (skippati i primi {args.resume_from}, rimasti {len(jobs)})\n")
+        print(f"Total jobs: {total} (first {args.resume_from} skipped, {len(jobs)} left)\n")
     else:
-        print(f"Totale jobs: {total}\n")
+        print(f"Total jobs: {total}\n")
 
     remaining = len(jobs)
 
     # =================================================================
-    # Esecuzione
+    # Execution
     # =================================================================
 
     print(f"{'='*70}")
@@ -464,7 +464,7 @@ if __name__ == '__main__':
 
         elapsed_global = time.time() - start_global
 
-        # Sommario
+        # Summary
         ok = sum(1 for r in results if r[0] == "ok")
         fail = sum(1 for r in results if r[0] == "fail")
         timeout_count = sum(1 for r in results if r[0] == "timeout")
@@ -485,6 +485,6 @@ if __name__ == '__main__':
                     print(f"  [{status.upper()}] {label}")
 
     finally:
-        print("\n>>> Pulizia finale (Ray + processi orfani)...")
+        print("\n>>> Final cleanup (Ray + orphan processes)...")
         final_cleanup()
         print(">>> Done.")

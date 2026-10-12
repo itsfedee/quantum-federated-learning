@@ -12,7 +12,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from qibo_qfl_pt.experiment_utils import ExperimentPath
 
 # =====================================================================
-# Platform detection (fatta una volta sola, top-level)
+# Platform detection (done once, at top level)
 # =====================================================================
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -20,42 +20,37 @@ IS_LINUX = platform.system() == "Linux"
 IS_MACOS = platform.system() == "Darwin"
 
 # =====================================================================
-# Argomenti da riga di comando
+# Command line arguments
 # =====================================================================
-# Esempi d'uso:
+# Usage examples:
 #   python parallel_experiments.py --strategy FedProx --workers 4
 #   python parallel_experiments.py --strategy FedAdam --workers 6
 
 
 # =====================================================================
-# Strategie e iperparametri
-# Top-level: i worker spawn-ati su Windows li importano.
+# Strategies and hyperparameters
+# Top level: the workers spawned on Windows import them.
 # =====================================================================
 
-iid_strategies = {
-    "FedAvg":     (None,  None,   "eta_l", 0.3,    [1, 2, 3, 4, 5, 6, 7]),
-  #  "FedProx":    ("mu",  0.03,   "eta_l", 0.3,    [1, 2, 3, 4, 5, 6, 7]),
-  #  "FedAdagrad": ("eta", 0.3,    "eta_l", 0.2,    [1, 2, 3, 4, 5, 6, 7]),
- # "FedAdam":    ("eta", 0.2,    "eta_l", 0.15,   [1, 2, 3, 4, 5, 6, 7]),
-   # "FedYogi":    ("eta", 0.1,    "eta_l", 0.1,    [1, 2, 3, 4, 5, 6, 7]),
-}
-
-non_iid_strategies = {
-    "FedAvg":     (None,  None,   "eta_l", 0.3,   [1, 2, 3, 4, 5, 6, 7]),
-    "FedProx":    ("mu",  0.03,   "eta_l", 0.3,   [1, 2, 3, 4, 5, 6, 7]),
-    "FedAdagrad": ("eta", 0.3,   "eta_l", 0.2,   [1, 2, 3, 4, 5, 6, 7]),
-    "FedAdam":    ("eta", 0.1,    "eta_l", 0.1,   [1, 2, 3, 4, 5, 6, 7]),
-    "FedYogi":    ("eta", 0.1,    "eta_l", 0.1,   [1, 2, 3, 4, 5, 6, 7]),
-}
+# The hyperparameters chosen by the tuning, for reference when adding a
+# strategy to the campaign below: (server param, value, client param,
+# value). FedAdam is the only one that differs between IID and non-IID.
+#
+#   FedAvg       None  None   eta_l 0.3
+#   FedProx      mu    0.03   eta_l 0.3
+#   FedAdagrad   eta   0.3    eta_l 0.2
+#   FedAdam      eta   0.2    eta_l 0.15     (non-IID: eta 0.1, eta_l 0.1)
+#   FedYogi      eta   0.1    eta_l 0.1
 
 
 # =====================================================================
-# Helper cross-platform per kill processi e cleanup
+# Cross-platform helpers to kill processes and clean up
 # =====================================================================
 
 def kill_proc_tree(pid):
-    """Killa un processo e tutti i suoi discendenti.
-    Cross-platform. Su Windows usa taskkill /T, su Unix usa il process group."""
+    """Kill a process and all its descendants.
+
+    Cross-platform: taskkill /T on Windows, the process group on Unix."""
     if IS_WINDOWS:
         try:
             subprocess.run(
@@ -65,13 +60,13 @@ def kill_proc_tree(pid):
         except Exception:
             pass
     else:
-        # Su Unix abbiamo creato un nuovo session group con start_new_session=True,
-        # quindi tutti i discendenti condividono il process group ID = pid.
+        # On Unix we created a new session group with start_new_session=True,
+        # so every descendant shares the process group ID = pid.
         try:
             pgid = os.getpgid(pid)
             os.killpg(pgid, signal.SIGTERM)
             time.sleep(1)
-            # Se dopo SIGTERM e' ancora vivo, SIGKILL secco
+            # If it is still alive after SIGTERM, plain SIGKILL
             try:
                 os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
@@ -81,35 +76,36 @@ def kill_proc_tree(pid):
 
 
 def final_cleanup():
-    """Pulizia finale: chiude ray e killa eventuali orfani.
+    """Final cleanup: shut ray down and kill any orphans left behind.
+
     Cross-platform."""
-    # Tentativo soft via comando ray
+    # Soft attempt through the ray command
     try:
         subprocess.run(["ray", "stop", "--force"], capture_output=True, timeout=30)
     except Exception:
         pass
 
-    # Hard kill OS-specifico per orfani sopravvissuti
+    # OS-specific hard kill for surviving orphans
     if IS_WINDOWS:
         for image in ("ray.exe", "raylet.exe", "gcs_server.exe"):
             subprocess.run(["taskkill", "/F", "/IM", image], capture_output=True)
     else:
-        # pkill ritorna != 0 se non trova nulla, ed e' OK: capture_output ingoia tutto
+        # pkill returns != 0 when it finds nothing, which is fine: capture_output swallows it
         for pattern in ("raylet", "gcs_server", "ray::"):
             subprocess.run(["pkill", "-9", "-f", pattern], capture_output=True)
 
 
 def cleanup_orphan_ray_dirs(label="startup"):
-    """Rimuove le Ray temp dir orfane lasciate da run interrotte.
+    """Remove the orphan Ray temp dirs left behind by interrupted runs.
 
-    Il cleanup per-job (la rmtree nel finally di run_single_job) non viene
-    eseguito se il processo muore di SIGKILL, se cade la sessione ssh o se
-    la macchina si riavvia: le dir restano nella temp dir e col tempo
-    riempiono il disco. Su una macchina condivisa questo danneggia tutti,
-    quindi puliamo all'avvio e alla fine di ogni sweep.
+    The per-job cleanup (the rmtree in the finally of run_single_job) never
+    runs if the process dies of SIGKILL, if the ssh session drops or if the
+    machine reboots: the dirs stay in the temp dir and fill the disk over
+    time. On a shared machine that hurts everyone, so we clean up at the
+    start and at the end of every sweep.
 
-    Sicurezza: non tocca niente se ci sono ancora processi flwr/ray vivi
-    (potrebbe essere uno sweep parallelo), e salta le dir di altri utenti.
+    Safety: it touches nothing while flwr/ray processes are still alive (it
+    could be a parallel sweep), and it skips other users' dirs.
     """
     tmp_root = tempfile.gettempdir()
 
@@ -120,8 +116,8 @@ def cleanup_orphan_ray_dirs(label="startup"):
                 capture_output=True, timeout=10,
             )
             if alive.returncode == 0:
-                print(f">>> Cleanup {label}: processi flwr/ray ancora attivi, "
-                      f"pulizia di {tmp_root} saltata per sicurezza.")
+                print(f">>> Cleanup {label}: flwr/ray processes still running, "
+                      f"skipping the cleanup of {tmp_root} to be safe.")
                 return
         except Exception:
             pass
@@ -142,7 +138,7 @@ def cleanup_orphan_ray_dirs(label="startup"):
         if not os.path.isdir(path):
             continue
         try:
-            # Non toccare le temp dir di altri utenti della macchina.
+            # Leave the temp dirs of other users on this machine alone.
             if uid is not None and os.stat(path).st_uid != uid:
                 continue
         except OSError:
@@ -162,19 +158,20 @@ def cleanup_orphan_ray_dirs(label="startup"):
             freed += size
 
     if removed:
-        print(f">>> Cleanup {label}: rimosse {removed} Ray temp dir orfane da "
-              f"{tmp_root} ({freed / 1e9:.1f} GB liberati)")
+        print(f">>> Cleanup {label}: removed {removed} orphan Ray temp dirs from "
+              f"{tmp_root} ({freed / 1e9:.1f} GB freed)")
     try:
         usage = shutil.disk_usage(tmp_root)
-        print(f">>> Spazio libero su {tmp_root}: {usage.free / 1e9:.1f} GB "
+        print(f">>> Free space on {tmp_root}: {usage.free / 1e9:.1f} GB "
               f"/ {usage.total / 1e9:.1f} GB")
     except Exception:
         pass
 
 
 def raise_fd_limit_if_possible():
-    """Su Unix con tanti workers serve alzare il limit dei file descriptor.
-    Su Windows non serve (Windows non ha questo limite)."""
+    """On Unix with many workers the file descriptor limit must be raised.
+
+    Not needed on Windows, which has no such limit."""
     if IS_WINDOWS:
         return
     try:
@@ -183,22 +180,22 @@ def raise_fd_limit_if_possible():
         target = min(65536, hard)
         if soft < target:
             resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
-            print(f">>> File descriptor limit alzato: {soft} -> {target}")
+            print(f">>> File descriptor limit raised: {soft} -> {target}")
     except Exception as e:
-        print(f">>> WARN: impossibile alzare fd limit ({e}). Se hai workers>16, "
-              f"fai 'ulimit -n 65536' prima di lanciare lo script.")
+        print(f">>> WARN: could not raise the fd limit ({e}). With workers>16, "
+              f"run 'ulimit -n 65536' before launching the script.")
 
 
 # =====================================================================
-# Funzione per eseguire un singolo job
-# Top-level: deve essere importabile dai worker (spawn su Windows).
+# Function that runs a single job
+# Top level: it must be importable by the workers (spawn on Windows).
 # =====================================================================
 
 def run_single_job(job, timeout_sec, stagger_max=0.0):
-    # Stagger casuale per evitare che tutti i worker bombardino il SuperLink
-    # nello stesso istante. Il SuperLink locale ci mette ~15s a essere
-    # operativo a freddo, e il client flwr CLI ha un timeout di 15s sulla
-    # connessione iniziale: con N client simultanei almeno uno sfora.
+    # Random stagger so the workers do not all hit the SuperLink at the same
+    # instant. The local SuperLink takes ~15s to become operational from cold,
+    # and the flwr CLI client has a 15s timeout on the initial connection:
+    # with N simultaneous clients at least one of them overruns it.
     if stagger_max > 0:
         time.sleep(random.uniform(0, stagger_max))
 
@@ -259,10 +256,10 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
 
     config_string = " ".join(parts)
 
-    # Ambiente custom per questo job.
-    # NON impostiamo FLWR_HOME per-job: il SuperLink locale managed di
-    # Flower e' uno solo per macchina, condiviso fra tutti i flwr run
-    # paralleli, ed e' progettato per gestire run concorrenti.
+    # Custom environment for this job.
+    # We do NOT set a per-job FLWR_HOME: Flower's managed local SuperLink is
+    # one per machine, shared by all the parallel flwr runs, and it is
+    # designed to handle concurrent runs.
     env = os.environ.copy()
     env['CUDA_VISIBLE_DEVICES'] = ''
     env['RAY_DEDUP_LOGS'] = '0'
@@ -270,7 +267,7 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
     env['PYTHONIOENCODING'] = 'utf-8'
     env['PYTHONUNBUFFERED'] = '1'
 
-    # RAY_TMPDIR univoco per non incrociare i Ray work dirs fra job.
+    # A unique RAY_TMPDIR so the Ray work dirs of different jobs stay apart.
     ray_tmp = tempfile.mkdtemp(prefix=f"ray_{job['strategy']}_seed{seed}_")
     env['RAY_TMPDIR'] = ray_tmp
 
@@ -281,9 +278,9 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
     start_time = time.time()
     print(f"  [START] {job_label}")
 
-    # Argomenti Popen cross-platform.
-    # Su Unix start_new_session=True crea un nuovo process group, cosi'
-    # possiamo killare tutti i discendenti via os.killpg.
+    # Cross-platform Popen arguments.
+    # On Unix start_new_session=True creates a new process group, so we can
+    # kill every descendant through os.killpg.
     popen_kwargs = dict(
         env=env,
         stdout=subprocess.PIPE,
@@ -307,7 +304,7 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
             deadline = time.time() + timeout_sec
             for line in proc.stdout:
                 line = line.rstrip()
-                # Stampa solo righe utili: round, metriche, errori
+                # Print only the useful lines: rounds, metrics, errors
                 if any(k in line for k in ("[ROUND", "Server eval", "Server train eval", "ERROR", "aggregate_", "FAIL")):
                     print(f"  {tag} {line}", flush=True)
                 if time.time() > deadline:
@@ -330,17 +327,17 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
             return ("timeout", job_label, elapsed)
 
     finally:
-        # Sicurezza: se il processo per qualche motivo e' ancora vivo, killalo
+        # Safety net: if the process is somehow still alive, kill it
         if proc and proc.poll() is None:
             kill_proc_tree(proc.pid)
-        # Pausa per rilascio file handles (su Windows e' indispensabile,
-        # su Unix non fa male)
+        # Pause to let the file handles be released (indispensable on
+        # Windows, harmless on Unix)
         time.sleep(2)
         shutil.rmtree(ray_tmp, ignore_errors=True)
 
 
 # =====================================================================
-# Setup + esecuzione: TUTTO sotto __main__ (spawn su Windows).
+# Setup and execution: EVERYTHING under __main__ (spawn on Windows).
 # =====================================================================
 
 if __name__ == '__main__':
@@ -349,395 +346,94 @@ if __name__ == '__main__':
         "--strategy",
         type=str,
         default=None,
-        help="Se specificato, lancia solo quella strategia. Altrimenti tutte.",
+        help="If given, run only that strategy. Otherwise run them all.",
     )
     parser.add_argument(
         "--workers",
         type=int,
         default=1,
-        help="Quante run lanciare in parallelo. Default: 1."
+        help="How many runs to launch in parallel. Default: 1."
     )
     parser.add_argument(
         "--timeout",
         type=int,
         default=21600,
-        help="Timeout per singola run, in secondi. Default: 21600 (6 ore)."
+        help="Timeout for a single run, in seconds. Default: 21600 (6 hours)."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the jobs and their destination folder without running them."
     )
     args = parser.parse_args()
 
     print(f">>> Platform: {platform.system()} ({platform.machine()})")
 
-    # Pulizia dei residui lasciati da run precedenti interrotte, prima di
-    # occupare altro spazio con questo sweep.
-    cleanup_orphan_ray_dirs("avvio")
+    # Clear the leftovers of previously interrupted runs before this sweep
+    # takes up more space.
+    cleanup_orphan_ray_dirs("startup")
 
-    # Su Linux con tanti workers conviene alzare il fd limit
+    # On Linux with many workers it pays to raise the fd limit
     if args.workers >= 8:
         raise_fd_limit_if_possible()
 
-    # Stagger massimo all'avvio dei job nel pool. Per workers=1 non serve.
-    # Per workers>=2 vogliamo distribuire l'avvio su qualche secondo cosi'
-    # i client non bombardano il SuperLink simultaneamente.
+    # Maximum stagger when starting the jobs in the pool. Not needed for
+    # workers=1. For workers>=2 we spread the start over a few seconds so the
+    # clients do not hit the SuperLink all at once.
     pool_stagger = 0.0 if args.workers == 1 else 5.0 * args.workers
 
-    # Validazione strategia
-    if args.strategy is not None:
-        if args.strategy not in iid_strategies:
-            print(f"ERRORE: strategia '{args.strategy}' non riconosciuta.")
-            print(f"Strategie valide: {list(iid_strategies.keys())}")
-            sys.exit(1)
-        strategies_to_use = [args.strategy]
-        print(f"\n>>> Modalità singola strategia: {args.strategy}")
-    else:
-        strategies_to_use = list(iid_strategies.keys())
-        print(f"\n>>> Modalità completa: tutte le strategie")
-
-    print(f">>> Workers paralleli: {args.workers}")
+    print(f">>> Parallel workers: {args.workers}")
     print(f">>> Timeout per run: {args.timeout}s")
-    print(f">>> Pool stagger max: {pool_stagger:.1f}s\n")
+    print(f">>> Max pool stagger: {pool_stagger:.1f}s\n")
 
     # =================================================================
-    # Configurazione
+    # Configuration: the campaign to run
     # =================================================================
+    # One campaign at a time. The finished ones no longer live here: their
+    # results are in results/ and in archive/, and this file with all the
+    # past blocks is in the initial commit and in ../qibo-qfl-torch.
 
     SEEDS = [1, 2, 3, 4, 5, 6, 7]
 
-    NOISE_BASE_005 = {"base_pauli": 0.005, "base_readout": 0.005, "scale": 0.002,
-                      "walk_sigma": 0.0, "walk_seed": 7}
-    WALK_SEED_MAP = {1: 1, 2: 11, 3: 12, 4: 20, 5: 21, 6: 22, 7: 24}
-    WALK_SEED_MAP_10 = {1: 1, 2: 11, 3: 12, 4: 20, 5: 21, 6: 22, 7: 24,
-                        8: 30, 9: 31, 10: 32}
-
-    runs = []
-
-    # =================================================================
-    # 5 strategie IID noiseless noshots — 7 seed, 40 round, HP scelti
-    # =================================================================
-
-    all_strategies_iid = {
-        "FedAvg":     (None,  None,  "eta_l", 0.3,   [1, 2, 3, 4, 5, 6, 7]),
-        "FedProx":    ("mu",  0.03,  "eta_l", 0.3,   [1, 2, 3, 4, 5, 6, 7]),
-        "FedAdagrad": ("eta", 0.3,   "eta_l", 0.2,   [1, 2, 3, 4, 5, 6, 7]),
-        "FedAdam":    ("eta", 0.2,   "eta_l", 0.15,  [1, 2, 3, 4, 5, 6, 7]),
-        "FedYogi":    ("eta", 0.1,   "eta_l", 0.1,   [1, 2, 3, 4, 5, 6, 7]),
-    }
-
-
-
-
-
-
-
-    # =================================================================
-    # FedAvg IID mitigated statico p=0.005, soglie alte (0.03, 0.05)
-    # COMPLETATE — non rilanciare
-    # =================================================================
-
-    # for thresh in [0.03, 0.05]:
-    #     thresh_label = str(thresh).replace(".", "")
-    #     runs.append({
-    #         "distribution": "iid", "mode": "mitigated",
-    #         "model_type": "quantum",
-    #         **NOISE_BASE_005,
-    #         "nshots": 1000,
-    #         "num_rounds": 10,
-    #         "cdr_threshold": thresh,
-    #         "save_path_override": f"static_calibrations/thresh_{thresh_label}",
-    #         "strategies": {
-    #             "FedAvg": (None, None, "eta_l", 0.3, [1, 2, 3, 4, 5, 6, 7]),
-    #         },
-    #     })
-
-    # =================================================================
-    # Drift sigma sweep: FedAvg IID mitigated, p=0.005, soglie 0.03/0.05
-    # sigma_w in {0.003, 0.01} — crossover characterization
-    # =================================================================
-
-    # for sigma_w in [0.003, 0.01]:
-    #     sigma_label = str(sigma_w).replace(".", "")
-    #     for thresh in [0.03, 0.05]:
-    #         thresh_label = str(thresh).replace(".", "")
-    #         runs.append({
-    #             "distribution": "iid", "mode": "mitigated",
-    #             "model_type": "quantum",
-    #             **NOISE_BASE_005,
-    #             "walk_sigma": sigma_w,
-    #             "walk_seed_from_seed": True,
-    #             "walk_seed_map": WALK_SEED_MAP,
-    #             "nshots": 1000,
-    #             "num_rounds": 10,
-    #             "cdr_threshold": thresh,
-    #             "save_path_override": f"drift_sigma_sweep/sigma_{sigma_label}/thresh_{thresh_label}",
-    #             "strategies": {
-    #                 "FedAvg": (None, None, "eta_l", 0.3, [1, 2, 3, 4, 5, 6, 7]),
-    #             },
-    #         })
-
-    # =================================================================
-    # Sweep soglie OU federato, 40 round, FedAvg IID mitigated
-    # 6 soglie × 2 arm × 7 seed = 84 run
-    # =================================================================
-
-    ou_sweep_thresholds = [0.005, 0.015, 0.03, 0.05, 0.1, 0.2]
-
-
-    # =================================================================
-    # Retry ema_full corrotti in THRESH_SWEEP_FEDERATED_OU — 11 run
-    # thresh_0015/seed3, thresh_01/seed5,6,7, thresh_02/seed1-7
-    # =================================================================
-
-    ema_full_retries = {
-        0.015: [3],
-        0.1:   [5, 6, 7],
-        0.2:   [1, 2, 3, 4, 5, 6, 7],
-    }
-
-    for thresh, seeds in ema_full_retries.items():
-        thresh_label = str(thresh).replace(".", "")
-        runs.append({
-            "distribution": "iid", "mode": "mitigated",
+    # Strategy comparison, IID arm: noiseless, 60 rounds. It lands in
+    # results/strategy_comparison/federated/iid/, next to the runs of the
+    # other four strategies already produced.
+    runs = [
+        {
+            "distribution": "iid",
+            "mode": "noiseless",
             "model_type": "quantum",
-            **NOISE_BASE_005,
-            "walk_sigma": 0.001,
-            "walk_seed_from_seed": True,
-            "walk_seed_map": WALK_SEED_MAP,
-            "drift_type": "ou",
-            "walk_theta": 0.3,
-            "nshots": 1000,
-            "num_rounds": 40,
-            "cdr_threshold": thresh,
-            "cdr_mode": "ema",
-            "cdr_beta": 0.2,
-            "cdr_intra_beta": 0.2,
-            "save_path_override": f"THRESH_SWEEP_FEDERATED_OU/thresh_{thresh_label}/ema_full",
+            "base_pauli": 0.0,
+            "base_readout": 0.0,
+            "scale": 0.0,
+            "nshots": None,
+            "num_rounds": 60,
+            "num_clients": 5,
+            "fraction_fit": 0.75,
+            "fraction_evaluate": 0.75,
+            "save_path_override": "results/strategy_comparison/federated/iid",
             "strategies": {
-                "FedAvg": (None, None, "eta_l", 0.3, seeds),
+                # name: (server param, value, client param, value, seeds)
+                "FedAvg": (None, None, "eta_l", 0.3, SEEDS),
             },
-        })
+        },
+    ]
+
+    # The strategies actually defined above: --strategy picks among these.
+    available = sorted({s for run in runs for s in run["strategies"]})
+    if args.strategy is not None:
+        if args.strategy not in available:
+            print(f"ERROR: strategy '{args.strategy}' is not in this campaign.")
+            print(f"Available strategies: {available}")
+            sys.exit(1)
+        strategies_to_use = [args.strategy]
+        print(f">>> Only the {args.strategy} strategy\n")
+    else:
+        strategies_to_use = available
+        print(f">>> Strategies: {', '.join(available)}\n")
 
     # =================================================================
-    # 4 strategie (no FedAvg) IID, drift OU, 10 round, p=0.005
-    # noisy + mitigated (thresh 0.015, no_memory)
-    # 4 strat × 2 mode × 7 seed = 56 run
-    # =================================================================
-
-    other_strategies = {
-        "FedProx":    ("mu",  0.03,  "eta_l", 0.3,   [1, 2, 3, 4, 5, 6, 7]),
-        "FedAdagrad": ("eta", 0.3,   "eta_l", 0.2,   [1, 2, 3, 4, 5, 6, 7]),
-        "FedAdam":    ("eta", 0.2,   "eta_l", 0.15,  [1, 2, 3, 4, 5, 6, 7]),
-        "FedYogi":    ("eta", 0.1,   "eta_l", 0.1,   [1, 2, 3, 4, 5, 6, 7]),
-    }
-
-    # Noisy (no mitigation) con drift OU, 10 round
-    runs.append({
-        "distribution": "iid", "mode": "noisy",
-        "model_type": "quantum",
-        **NOISE_BASE_005,
-        "walk_sigma": 0.001,
-        "walk_seed_from_seed": True,
-        "walk_seed_map": WALK_SEED_MAP,
-        "drift_type": "ou",
-        "walk_theta": 0.3,
-        "nshots": 1000,
-        "num_rounds": 10,
-        "save_path_override": "strategies_OU_drift_10r/{strategy}/noisy",
-        "strategies": other_strategies,
-    })
-
-    # Mitigated con drift OU, 10 round
-    runs.append({
-        "distribution": "iid", "mode": "mitigated",
-        "model_type": "quantum",
-        **NOISE_BASE_005,
-        "walk_sigma": 0.001,
-        "walk_seed_from_seed": True,
-        "walk_seed_map": WALK_SEED_MAP,
-        "drift_type": "ou",
-        "walk_theta": 0.3,
-        "nshots": 1000,
-        "num_rounds": 10,
-        "cdr_threshold": 0.015,
-        "cdr_mode": "no_memory",
-        "save_path_override": "strategies_OU_drift_10r/{strategy}/mitigated",
-        "strategies": other_strategies,
-    })
-
-    # =================================================================
-    # TEST RUMORE OMOGENEO — controllo per la 4.3.2
-    #
-    # Stessa configurazione delle run noisy a p=0.022 che abbiamo già
-    # (FedAvg IID, 10 round, 5 client, nshots=1000, eta_l=0.3, no drift),
-    # ma con scale=0: tutti i client hanno lo STESSO rumore invece di
-    # riceverlo distribuito attorno alla base.
-    #
-    # Serve a isolare l'eterogeneità dal rumore: se la distanza dei pesi
-    # dal noiseless scende ai livelli del centralizzato (~0.24 rad invece
-    # di ~0.98), la diffusione è causata dalla disomogeneità fra client e
-    # non dal rumore in sé. Il riferimento noiseless è già disponibile e
-    # non va rifatto: stessi seed, stessa configurazione.
-    # =================================================================
-
-    # Per eseguire solo questa run usa RUN_ONLY = "homogeneous" piu' sotto.
-
-    homogeneous_noise_run = {
-        "distribution": "iid", "mode": "noisy",
-        "model_type": "quantum",
-        "base_pauli": 0.022, "base_readout": 0.022,
-        "scale": 0.0,                       # <-- rumore identico su tutti i client
-        "walk_sigma": 0.0,                  # nessun drift, confronto statico
-        "nshots": 1000,
-        "num_rounds": 10,
-        "save_path_override": (
-            "NEW_HOMOGENEUS_NOISE"
-        ),
-        "strategies": {"FedAvg": (None, None, "eta_l", 0.3, [1, 2, 3, 4, 5, 6, 7])},
-    }
-    runs.append(homogeneous_noise_run)
-
-    # =================================================================
-    # DRIFT OU NON-IID — noisy e mitigated per tutte e cinque le strategie
-    #
-    # Speculare ai due blocchi IID sopra: stessa base di rumore, stesso OU
-    # (sigma=0.001, theta=0.3), 10 round, soglia 0.015 con no_memory per il
-    # mitigato. Cambia solo la distribuzione dei dati, cosi' il confronto
-    # iid/non-iid e' controllato.
-    #
-    # Le strategie usano non_iid_strategies, che ha iperparametri propri
-    # (eta/eta_l diversi da quelli IID): sono i valori gia' tarati per il
-    # non-IID, non vanno allineati a quelli IID.
-    #
-    # distribution="non_iid" aggiunge da solo iid=false e alpha=1.8 alla
-    # config string (riga ~256).
-    # =================================================================
-
-    non_iid_drift_runs = []
-    for mode in ("noisy", "mitigated"):
-        run = {
-            "distribution": "non_iid", "mode": mode,
-            "model_type": "quantum",
-            **NOISE_BASE_005,
-            "walk_sigma": 0.001,
-            "walk_seed_from_seed": True,
-            "walk_seed_map": WALK_SEED_MAP,
-            "drift_type": "ou",
-            "walk_theta": 0.3,
-            "nshots": 1000,
-            "num_rounds": 10,
-            "save_path_override": f"strategies_OU_drift_10r/non_iid/{{strategy}}/{mode}",
-            "strategies": non_iid_strategies,
-        }
-        if mode == "mitigated":
-            run["cdr_threshold"] = 0.015
-            run["cdr_mode"] = "no_memory"
-        non_iid_drift_runs.append(run)
-    runs.extend(non_iid_drift_runs)
-
-    # =================================================================
-    # DRIFT FORTE — regime in cui le ricalibrazioni sono dominate dal drift
-    #
-    # A sigma=0.001 il drift NON contribuisce: la statistica di scatto D e'
-    # identica al caso statico (17.5% contro 18.3% oltre soglia a 0.05).
-    # Qui alziamo sigma per ottenere un regime in cui il drift domina, da
-    # confrontare con il controllo statico gia' disponibile a soglia 0.05
-    # (tasso 1.27) e con l'OU a sigma=0.001 (tasso 1.28).
-    #
-    # ATTENZIONE, da dichiarare in tesi: un OU con theta=0.3 ha deviazione
-    # stazionaria sigma/sqrt(2*theta). Su base 0.005 questo significa che il
-    # processo passa sotto zero circa il 10% del tempo a sigma=0.003 e il 22%
-    # a sigma=0.005, e viene quindi troncato. Non sono configurazioni
-    # fisicamente realistiche: servono a dimostrare che il meccanismo risponde
-    # al drift quando il drift e' abbastanza grande, non a modellare hardware.
-    #
-    # Soglia 0.05 e 10 round: il tasso e' stazionario (verificato sulle run a
-    # 40 round), quindi l'orizzonte breve misura la stessa grandezza.
-    # =================================================================
-
-    STRONG_DRIFT_SIGMAS = [0.003, 0.005]
-
-    strong_drift_runs = []
-    for sigma_w in STRONG_DRIFT_SIGMAS:
-        sigma_label = str(sigma_w).replace(".", "")
-        strong_drift_runs.append({
-            "distribution": "iid", "mode": "mitigated",
-            "model_type": "quantum",
-            **NOISE_BASE_005,
-            "walk_sigma": sigma_w,
-            "walk_seed_from_seed": True,
-            "walk_seed_map": WALK_SEED_MAP,
-            "drift_type": "ou",        # esplicito: senza, il default e' "rw"
-            "walk_theta": 0.3,
-            "nshots": 1000,
-            "num_rounds": 10,
-            "cdr_threshold": 0.05,
-            "cdr_mode": "no_memory",
-            "save_path_override": f"STRONG_DRIFT_OU/sigma_{sigma_label}/thresh_005",
-            "strategies": {
-                "FedAvg": (None, None, "eta_l", 0.3, [1, 2, 3, 4, 5, 6, 7]),
-            },
-        })
-    runs.extend(strong_drift_runs)
-
-    # =================================================================
-    # Terzo arm della campagna RW: ema_full sullo sweep di soglia
-    # 5 soglie x 7 seed = 35 run
-    #
-    # ema_full significa EMA su entrambi i livelli: fra un round e il
-    # successivo (cdr_beta) e dentro il singolo refit (cdr_intra_beta),
-    # come nell'omologo OU. Configurazione identica agli altri due bracci
-    # della stessa campagna RW, walk_seed compresi, cosi' i tre bracci
-    # vedono la stessa traiettoria di rumore e restano appaiabili per seed.
-    #
-    # sigma = 0.0005 e non 0.001: su 30 round un random walk a 0.001 porta
-    # un terzo delle traiettorie a rumore nullo per clipping, e i client
-    # diventerebbero di fatto noiseless.
-    # =================================================================
-
-    rw_ema_full_runs = []
-    for thresh in [0.005, 0.015, 0.03, 0.05, 0.2]:
-        thresh_label = str(thresh).replace(".", "")
-        rw_ema_full_runs.append({
-            "distribution": "iid", "mode": "mitigated",
-            "model_type": "quantum",
-            **NOISE_BASE_005,
-            "walk_sigma": 0.0005,
-            "walk_seed_from_seed": True,
-            "walk_seed_map": WALK_SEED_MAP,
-            "drift_type": "rw",
-            "nshots": 1000,
-            "num_rounds": 30,
-            "cdr_threshold": thresh,
-            "cdr_mode": "ema",
-            "cdr_beta": 0.2,
-            "cdr_intra_beta": 0.2,
-            "save_path_override":
-                f"FINAL_RW_SWEEP/thresh_{thresh_label}/ema_full",
-            "strategies": {
-                "FedAvg": (None, None, "eta_l", 0.3, [1, 2, 3, 4, 5, 6, 7]),
-            },
-        })
-    runs.extend(rw_ema_full_runs)
-
-    # -----------------------------------------------------------------
-    # Selettore: quale sottoinsieme eseguire.
-    #   "all"           -> tutte le run definite sopra
-    #   "homogeneous"   -> test a rumore omogeneo (7 run)
-    #   "strong_drift"  -> test a drift forte (14 run)
-    #   "non_iid_drift" -> drift OU non-IID, 5 strategie x 7 seed x 2 modi (70 run)
-    #   "rw_ema_full"   -> terzo arm della campagna RW, 5 soglie x 7 seed (35 run)
-    # -----------------------------------------------------------------
-    RUN_ONLY = "rw_ema_full"
-
-    if RUN_ONLY == "homogeneous":
-        runs = [homogeneous_noise_run]
-    elif RUN_ONLY == "strong_drift":
-        runs = strong_drift_runs
-    elif RUN_ONLY == "non_iid_drift":
-        runs = non_iid_drift_runs
-    elif RUN_ONLY == "rw_ema_full":
-        runs = rw_ema_full_runs
-
-    # =================================================================
-    # Costruzione lista jobs (flatten)
+    # Building the job list (flatten)
     # =================================================================
 
     jobs = []
@@ -745,9 +441,11 @@ if __name__ == '__main__':
         noise_label = ExperimentPath.noise_label(
             run["base_pauli"], run["base_readout"], run["scale"]
         )
-        # Supporta sia dict che list di tuple per le strategie
+        # Accepts both a dict and a list of tuples for the strategies
         strat_items = run["strategies"].items() if isinstance(run["strategies"], dict) else run["strategies"]
         for strategy, (srv_name, srv_val, cli_name, cli_val, seeds) in strat_items:
+            if strategy not in strategies_to_use:
+                continue
             override = run.get("save_path_override", "")
             save_path = override.format(strategy=strategy.lower()) if override else ExperimentPath.build(
                 distribution=run["distribution"],
@@ -796,15 +494,15 @@ if __name__ == '__main__':
                     "cdr_intra_beta": run.get("cdr_intra_beta"),
                 }
 
-                # Seed isolation: i seed in overrides sono fissi,
-                # quelli NON in overrides variano con seed.
+                # Seed isolation: the seeds in overrides are held fixed,
+                # those NOT in overrides vary with seed.
                 if seed_overrides:
                     job["init_seed"] = seed_overrides.get("init_seed", seed)
                     job["data_seed"] = seed_overrides.get("data_seed", seed)
                     job["sampling_seed"] = seed_overrides.get("sampling_seed", seed)
 
                 if seed_label_prefix:
-                    # Determina il valore del seed che varia per il label
+                    # Work out the value of the varying seed for the label
                     if seed_label_source == "init_seed":
                         vary_val = job.get("init_seed", seed)
                     elif seed_label_source == "data_seed":
@@ -818,14 +516,25 @@ if __name__ == '__main__':
                 jobs.append(job)
 
     total = len(jobs)
-    print(f"Totale jobs da eseguire: {total}\n")
+    print(f"Total jobs to run: {total}\n")
+
+    if args.dry_run:
+        for job in jobs:
+            print(f"  {job['strategy']:<11} seed {job['seed']}  "
+                  f"{job['mode']}, {job.get('num_rounds')} round")
+        destinazioni = sorted({job["save_path"] for job in jobs})
+        print("\n  destination:")
+        for d in destinazioni:
+            print(f"    {d}  ({'exists' if os.path.isdir(d) else 'to be created'})")
+        print("\n  dry run: no job launched.")
+        sys.exit(0)
 
     # =================================================================
-    # Esecuzione: warmup dummy + pool parallelo
+    # Execution: dummy warmup + parallel pool
     # =================================================================
 
     print(f"{'='*70}")
-    print(f"Avvio {total} jobs ({args.workers} workers paralleli dopo warmup)")
+    print(f"Starting {total} jobs ({args.workers} parallel workers after warmup)")
     print(f"{'='*70}\n")
 
     start_global = time.time()
@@ -836,11 +545,10 @@ if __name__ == '__main__':
         sys.exit(0)
 
     try:
-        # ---- Warmup dummy ----
-        # Un job noiseless da 1 round che scalda il SuperLink di Flower
-        # (~15s a freddo) senza sprecare un job vero. Il risultato non
-        # viene salvato (save_path punta a una dir temporanea cancellata
-        # subito dopo).
+        # ---- Dummy warmup ----
+        # A 1-round noiseless job that warms up Flower's SuperLink (~15s from
+        # cold) without wasting a real job. The result is not saved
+        # (save_path points at a temporary dir deleted right afterwards).
         warmup_tmp = tempfile.mkdtemp(prefix="warmup_dummy_")
         warmup_job = {
             "strategy": "FedAvg",
@@ -874,19 +582,19 @@ if __name__ == '__main__':
             "cdr_beta": None,
             "cdr_intra_beta": None,
         }
-        print(">>> WARMUP: job dummy noiseless 1-round per scaldare il SuperLink")
+        print(">>> WARMUP: 1-round noiseless dummy job to warm up the SuperLink")
         warmup_status, warmup_label, warmup_elapsed = run_single_job(
             warmup_job, timeout_sec=300, stagger_max=0.0
         )
         print(f"  >>> Warmup done ({warmup_status}) in {warmup_elapsed:.0f}s")
-        # Cleanup: il warmup non deve lasciare traccia
+        # Cleanup: the warmup must leave no trace
         shutil.rmtree(warmup_tmp, ignore_errors=True)
 
-        # ---- Pool: TUTTI i job in parallelo ----
+        # ---- Pool: ALL the jobs in parallel ----
         pool_jobs = jobs
 
         if pool_jobs and args.workers > 1:
-            print(f">>> POOL: {len(pool_jobs)} jobs restanti su {args.workers} workers\n")
+            print(f">>> POOL: {len(pool_jobs)} jobs left on {args.workers} workers\n")
             with ProcessPoolExecutor(max_workers=args.workers) as executor:
                 futures = {
                     executor.submit(run_single_job, job, args.timeout, pool_stagger): job
@@ -902,8 +610,8 @@ if __name__ == '__main__':
                         print(f"  [ERROR] {e}")
                         results.append(("error", str(e), 0))
         elif pool_jobs:
-            # workers=1: tutto in sequenza, niente pool
-            print(f">>> SEQUENZIALE: {len(pool_jobs)} jobs restanti su 1 worker\n")
+            # workers=1: everything in sequence, no pool
+            print(f">>> SEQUENTIAL: {len(pool_jobs)} jobs left on 1 worker\n")
             for job in pool_jobs:
                 status, label, elapsed = run_single_job(job, args.timeout, stagger_max=0.0)
                 results.append((status, label, elapsed))
@@ -913,7 +621,7 @@ if __name__ == '__main__':
         elapsed_global = time.time() - start_global
 
         # =================================================================
-        # Sommario finale
+        # Final summary
         # =================================================================
 
         ok = sum(1 for r in results if r[0] == "ok")
@@ -922,7 +630,7 @@ if __name__ == '__main__':
         error = sum(1 for r in results if r[0] == "error")
 
         print(f"\n{'='*70}")
-        print(f"COMPLETATO in {elapsed_global:.0f}s ({elapsed_global/3600:.2f} ore)")
+        print(f"COMPLETED in {elapsed_global:.0f}s ({elapsed_global/3600:.2f} hours)")
         print(f"  OK:      {ok}/{total}")
         print(f"  FAIL:    {fail}/{total}")
         print(f"  TIMEOUT: {timeout_count}/{total}")
@@ -936,11 +644,11 @@ if __name__ == '__main__':
                     print(f"  [{status.upper()}] {label}")
 
     finally:
-        # Pulizia finale, ESEGUITA SEMPRE — anche se l'utente fa Ctrl+C,
-        # anche se qualcosa esplode dentro il pool.
+        # Final cleanup, ALWAYS executed - even if the user hits Ctrl+C,
+        # even if something blows up inside the pool.
         print("\n>>> Pulizia finale (Ray + processi orfani)...")
         final_cleanup()
-        # I processi Ray sono morti: ora le temp dir rimaste sono tutte
-        # orfane e si possono rimuovere senza rischi.
+        # The Ray processes are gone: every temp dir left behind is now an
+        # orphan and can be removed safely.
         cleanup_orphan_ray_dirs("finale")
         print(">>> Done.")

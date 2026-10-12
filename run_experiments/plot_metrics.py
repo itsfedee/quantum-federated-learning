@@ -36,7 +36,7 @@ COLORS = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', '
 
 
 def _read_folder(folder, source="eval_metrics_client", save_json=False, seeds=None):
-    """Legge tutti i JSON in una cartella, raggruppa per config, calcola mediana+MAD.
+    """Read every JSON in a folder, group by config, compute median+MAD.
 
     seeds: lista di seed da includere (es. [1,2,3,5,6,7]). Se None, usa tutti.
     """
@@ -52,7 +52,7 @@ def _read_folder(folder, source="eval_metrics_client", save_json=False, seeds=No
             print(f"  No files matching seeds={seeds} in {folder}/")
             return {}
 
-    # raggruppa per config (togliendo _seed/_dataseed/_initseed/_samplingseed + N.json)
+    # group by config (dropping _seed/_dataseed/_initseed/_samplingseed + N.json)
     import re
     groups = defaultdict(list)
     for f in files:
@@ -104,11 +104,11 @@ def _read_folder(folder, source="eval_metrics_client", save_json=False, seeds=No
 # =====================================================================
 
 def _pretty_label(raw_key):
-    """Trasforma 'fedavg_etal0.35' in 'FedAvg (η_l=0.35)' ecc."""
+    """Turn 'fedavg_etal0.35' into 'FedAvg (η_l=0.35)' and so on."""
     import re
     parts = raw_key.split("_")
     strat = parts[0].capitalize()
-    # FedAvg, FedAdam, ecc.
+    # FedAvg, FedAdam, and so on
     strat_map = {"Fedavg": "FedAvg", "Fedadam": "FedAdam", "Fedadagrad": "FedAdagrad",
                  "Fedprox": "FedProx", "Fedyogi": "FedYogi"}
     strat = strat_map.get(strat, strat)
@@ -131,9 +131,9 @@ def _pretty_label(raw_key):
 
 def plot(scenarios, save_path=None, source="eval_metrics_client", metrics=("loss",), prefix="", title=None, save_json=False, seeds=None, xlim=None, dashed_labels=None):
     """
-    Plotta confronto tra scenari.
+    Plot a comparison between scenarios.
 
-    scenarios: dict {label: cartella} oppure dict {label: data_dict} (output di _read_folder)
+    scenarios: dict {label: folder} or dict {label: data_dict} (output of _read_folder)
     seeds: lista di seed da includere (es. [1,2,3,5,6,7]). Se None, usa tutti.
     """
     all_data = {}
@@ -190,7 +190,7 @@ def plot(scenarios, save_path=None, source="eval_metrics_client", metrics=("loss
         if xlim is not None:
             axes[ax_idx].set_xlim(xlim)
 
-    # Legenda condivisa sopra
+    # Shared legend on top
     handles, labels = axes[0].get_legend_handles_labels()
     ncol = min(len(handles), 5)
     fig.legend(handles, labels, frameon=False, fontsize=7, ncol=ncol,
@@ -202,7 +202,7 @@ def plot(scenarios, save_path=None, source="eval_metrics_client", metrics=("loss
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         fig.savefig(save_path, dpi=200, bbox_inches="tight")
-        # Salva anche PDF
+        # Save a PDF as well
         pdf_path = os.path.splitext(save_path)[0] + ".pdf"
         fig.savefig(pdf_path, bbox_inches="tight")
         print(f"Plot saved to {save_path} and {pdf_path}")
@@ -211,7 +211,7 @@ def plot(scenarios, save_path=None, source="eval_metrics_client", metrics=("loss
 
 def plot_tuning(folder, save_dir=None, source="eval_metrics_server", metrics=("loss",), save_json=False, title_prefix=""):
     """
-    Plotta il tuning: un grafico per strategia, una curva per config di iperparametri.
+    Plot the tuning: one chart per strategy, one curve per hyperparameter config.
 
     folder: cartella con tutti i JSON di tuning
     title_prefix: es. "Classical 9h IID" — aggiunto al titolo di ogni strategia
@@ -223,19 +223,19 @@ def plot_tuning(folder, save_dir=None, source="eval_metrics_server", metrics=("l
     if not all_data:
         return
 
-    # raggruppa per strategia con pretty labels
+    # group by strategy, with pretty labels
     strat_map = {"fedavg": "FedAvg", "fedadam": "FedAdam", "fedadagrad": "FedAdagrad",
                  "fedprox": "FedProx", "fedyogi": "FedYogi"}
     by_strategy = defaultdict(dict)
     for key, data in all_data.items():
         strategy = key.split("_")[0]
         pretty = _pretty_label(key)
-        # Rimuovi il nome strategia dal label, tieni solo i parametri
+        # Drop the strategy name from the label, keep only the parameters
         strat_pretty = strat_map.get(strategy, strategy)
         param_label = pretty.replace(f"{strat_pretty} ", "").strip()
         by_strategy[strategy][param_label] = data
 
-    # calcola xlim dai dati (dopo rimozione round 0)
+    # compute xlim from the data (after removing round 0)
     all_rounds = [r for data in all_data.values() for r in data["rounds"]]
     tuning_xlim = (min(all_rounds), max(all_rounds)) if all_rounds else None
 
@@ -254,7 +254,7 @@ def plot_tuning(folder, save_dir=None, source="eval_metrics_server", metrics=("l
 
 
 def plot_tuning_centralized(folder, save_path=None, metrics=("loss",), title="Centralized Tuning"):
-    """Plotta tuning centralizzato: una curva per ogni lr.
+    """Plot the centralized tuning: one curve per lr.
 
     Legge file con formato lr_{val}_seed{N}.json (epochs-based).
     """
@@ -305,7 +305,7 @@ def plot_tuning_centralized(folder, save_path=None, metrics=("loss",), title="Ce
 
 
 # =====================================================================
-# Partizioni
+# Partitions
 # =====================================================================
 
 def _generate_data(n_data, seed):
@@ -316,7 +316,7 @@ def _generate_data(n_data, seed):
 
 
 def plot_partitions(seed, alpha=1.0, n_data=500, num_clients=5, save_path=None):
-    """Plotta la distribuzione dei dati per ogni client."""
+    """Plot the data distribution of each client."""
     data = _generate_data(n_data, seed)
     dataset = Dataset.from_dict(data)
     partitioner = DirichletPartitioner(
@@ -326,7 +326,7 @@ def plot_partitions(seed, alpha=1.0, n_data=500, num_clients=5, save_path=None):
 
     fig, axes = plt.subplots(1, num_clients + 1, figsize=(4 * (num_clients + 1), 4))
 
-    # plot globale
+    # global plot
     x_all = np.array(data["point"])
     y_all = np.array(data["label"])
     colors_all = ["red" if l == 1 else "blue" for l in y_all]
@@ -368,7 +368,7 @@ def plot_partitions(seed, alpha=1.0, n_data=500, num_clients=5, save_path=None):
 
 
 def plot_partitions_grid(seeds, alpha=1.0, n_data=500, num_clients=5, save_path="partitions"):
-    """Plotta la distribuzione per più seed in una griglia."""
+    """Plot the distribution for several seeds in a grid."""
     n_seeds = len(seeds)
     n_cols = num_clients + 1
     fig, axes = plt.subplots(n_seeds, n_cols, figsize=(3.5 * n_cols, 3.5 * n_seeds))
@@ -425,7 +425,7 @@ def plot_partitions_grid(seeds, alpha=1.0, n_data=500, num_clients=5, save_path=
 
 
 # =====================================================================
-# Predizioni
+# Predictions
 # =====================================================================
 
 def _predict(weights_path, noise_model=None, nshots=None):
@@ -473,7 +473,7 @@ def plot_predictions(weights_path, title="Predictions", save_path=None,
 
 def plot_predictions_grid(scenarios, save_path=None, ncols=None):
     """
-    Plotta più predizioni in griglia.
+    Plot several predictions in a grid.
 
     scenarios: lista di (weights_path, title) oppure (weights_path, title, noise_kwargs)
     noise_kwargs: dict con chiavi opzionali 'pauli_base', 'readout_base', 'nshots'
@@ -515,11 +515,11 @@ def plot_predictions_grid(scenarios, save_path=None, ncols=None):
 
 
 # =====================================================================
-# Centralizzato
+# Centralized
 # =====================================================================
 
 def _read_centralized(folder, seeds=None, save_json=False, epochs_per_round=2):
-    """Legge i JSON centralizzati e restituisce un data_dict compatibile con plot().
+    """Read the centralized JSONs and return a data_dict compatible with plot().
 
     I JSON hanno struttura: {"epochs": [{"epoch": N, "eval_loss": ..., "eval_accuracy": ..., "eval_f1": ...}, ...]}
     epochs_per_round: quante epoche centralizzate corrispondono a 1 round federato (default: 2).
@@ -527,7 +527,7 @@ def _read_centralized(folder, seeds=None, save_json=False, epochs_per_round=2):
     """
     files = glob.glob(f"{folder}/seed*.json")
     if not files:
-        # Prova anche il pattern lr_*_seed*.json (centralizzato classico)
+        # Also try the lr_*_seed*.json pattern (classical centralized)
         files = glob.glob(f"{folder}/lr_*_seed*.json")
     if not files:
         print(f"  No files found in {folder}/")
@@ -576,7 +576,7 @@ def _read_centralized(folder, seeds=None, save_json=False, epochs_per_round=2):
 def plot_centralized_weight_distances(base_dir, noise_levels, seeds=range(1, 8),
                                        save_path=None, title="Centralized: weight distance",
                                        mode="2pi", regimes=("noisy", "mitigated")):
-    """Plotta distanza pesi centralizzati noiseless vs noisy/mitigated."""
+    """Plot the centralized weight distance, noiseless vs noisy/mitigated."""
     noiseless_dir = f"{base_dir}/noiseless/nshots_1000/weights"
     diff_noisy = []
     diff_mitigated = []
@@ -646,7 +646,7 @@ def plot_centralized_weight_distances(base_dir, noise_levels, seeds=range(1, 8),
 def plot_cdr_noise_map(pauli_base, readout_base, scale=0.002, client_id=0, weights_path=None,
                        n_training_samples=120, nshots_cdr=30000, cdr_seed=40,
                        nshots_model=1000, seed=None, save_path=None, title=None, ax=None, x_input=None, plot=True):
-    """Scatterplot dei training points CDR (noisy vs noise-free) con retta di regressione.
+    """Scatterplot of the CDR training points (noisy vs noise-free) with the fitted line.
 
     Se ax è passato, disegna su quell'asse (per subplot). Altrimenti crea una figura nuova.
     Se seed è passato, inizializza i pesi del modello con quel seed.
@@ -729,7 +729,7 @@ def plot_cdr_noise_map(pauli_base, readout_base, scale=0.002, client_id=0, weigh
 
 
 def weight_distance(theta_a, theta_b, mode="2pi"):
-    """Distanza tra due vettori di pesi.
+    """Distance between two weight vectors.
 
     mode: '2pi' = distanza angolare modulo 2pi, 'euclidean' = distanza euclidea.
     """
@@ -740,7 +740,7 @@ def weight_distance(theta_a, theta_b, mode="2pi"):
 
 
 def print_weight_distances(base_dir, noise_levels, etal="0.3", seeds=range(1, 4), mode="2pi"):
-    """Stampa distanza pesi noiseless-noisy e noiseless-mitigated."""
+    """Print the weight distance noiseless-noisy and noiseless-mitigated."""
     noiseless_dir = f"{base_dir}/noiseless/uniform_p0.0_r0.0/nshots_1000/weights"
 
     medians_n, medians_m = [], []
@@ -777,7 +777,7 @@ def print_weight_distances(base_dir, noise_levels, etal="0.3", seeds=range(1, 4)
 def plot_weight_distances(base_dir, noise_levels, etal="0.3", seeds=range(1, 3),
                           save_path=None, title="Weight distance vs noise level",
                           mode="2pi", regimes=("noisy", "mitigated")):
-    """Plotta distanza pesi noiseless-noisy e/o noiseless-mitigated.
+    """Plot the weight distance noiseless-noisy and/or noiseless-mitigated.
 
     mode: '2pi' = distanza angolare modulo 2pi, 'euclidean' = distanza euclidea.
     regimes: tupla con 'noisy' e/o 'mitigated'.
@@ -850,7 +850,7 @@ def plot_weight_distances(base_dir, noise_levels, etal="0.3", seeds=range(1, 3),
     plt.show()
 
 def _read_drift(folder, drift_key="drift_median", seeds=None):
-    """Legge il drift dai JSON, raggruppa per config, calcola mediana+MAD tra seed."""
+    """Read the drift from the JSONs, group by config, compute median+MAD across seeds."""
     files = glob.glob(f"{folder}/*.json")
     if not files:
         print(f"  No files found in {folder}/")
@@ -894,7 +894,7 @@ def _read_drift(folder, drift_key="drift_median", seeds=None):
 
 
 def plot_drift(scenarios, save_path=None, drift_key="drift_median", title=None, seeds=None, xlim=None):
-    """Plotta il drift mediano (con MAD) per più scenari.
+    """Plot the median drift (with MAD) for several scenarios.
 
     scenarios: dict {label: cartella} oppure dict {label: data_dict}
     """
@@ -945,12 +945,12 @@ def plot_drift(scenarios, save_path=None, drift_key="drift_median", title=None, 
 
 
 def plot_comparison(distribution="iid", with_centralized=True):
-    # Confronto strategie federate + centralizzato (non-IID)
+    # Federated strategies vs centralized (non-IID)
     sim_folder = f"strategies_comparison/{distribution}/noiseless/simulations/simulation_experiments"
     fed_data = _read_folder(sim_folder, source="eval_metrics_server")
 
     centr_data = _read_centralized("centralized_model_results/noiseless/nshots_None")
-    # Tieni solo le prime 30 epoche centralizzate
+    # Keep only the first 30 centralized epochs
     if centr_data is not None:
         mask = [i for i, r in enumerate(centr_data["rounds"]) if r <= 30]
         centr_data["rounds"] = [centr_data["rounds"][i] for i in mask]
@@ -981,14 +981,14 @@ import numpy as np
 import matplotlib.pyplot as plt
  
  
-# ---------- lettura ----------
+# ---------- reading ----------
  
 def load_rounds(json_path):
     return json.load(open(json_path))["rounds"]
  
  
 def collect_last_per_client(rounds):
-    """{client: (round, a, b, noisy, noisefree)} = ultimo round in cui il client appare."""
+    """{client: (round, a, b, noisy, noisefree)} = the last round the client appears in."""
     last = {}
     for r in rounds:
         rn = r.get("round")
@@ -1005,7 +1005,7 @@ def collect_last_per_client(rounds):
  
  
 def collect_series_per_client(rounds):
-    """{client: {'round':[...], 'a':[...], 'b':[...]}} ordinato per round."""
+    """{client: {'round':[...], 'a':[...], 'b':[...]}} ordered by round."""
     series = {}
     for r in rounds:
         rn = r.get("round")
@@ -1024,7 +1024,7 @@ def collect_series_per_client(rounds):
     return series
  
  
-# ---------- figura 1: scatter + retta ----------
+# ---------- figure 1: scatter + fitted line ----------
  
 def plot_maps_grid(rounds, save_path=None, title=""):
     last = collect_last_per_client(rounds)
@@ -1039,7 +1039,7 @@ def plot_maps_grid(rounds, save_path=None, title=""):
         if noisy.size:
             ax.scatter(noisy, noisefree, s=18, alpha=0.6, label="training points")
             x0, x1 = noisy.min(), noisy.max()
-            # R^2 della retta a*x+b sui punti reali
+            # R^2 of the line a*x+b on the real points
             y_pred = a * noisy + b
             ss_res = np.sum((noisefree - y_pred) ** 2)
             ss_tot = np.sum((noisefree - noisefree.mean()) ** 2)
@@ -1061,7 +1061,7 @@ def plot_maps_grid(rounds, save_path=None, title=""):
         fig.savefig(save_path, dpi=150, bbox_inches="tight"); print(f"salvato: {save_path}")
  
  
-# ---------- figura 2: a e b vs round ----------
+# ---------- figure 2: a and b vs round ----------
  
 def plot_ab_vs_round(rounds, save_path=None, title=""):
     series = collect_series_per_client(rounds)
@@ -1113,7 +1113,7 @@ def collect_train_series_per_client(rounds):
 
  
 def plot_train_vs_eval_a(rounds, save_path=None, title=""):
-    """Per ogni client: slope 'a' usata in TRAINING vs 'a' ricostruita in EVAL.
+    """For each client: the slope 'a' used in TRAINING vs the 'a' rebuilt in EVAL.
     Il gap che si allarga = mappa stale (problema). Curve vicine = mappa allineata."""
     eval_s = collect_series_per_client(rounds)        # cdr_per_client (eval)
     train_s = collect_train_series_per_client(rounds)  # cdr_train_per_client (training)
@@ -1142,7 +1142,7 @@ def plot_train_vs_eval_a(rounds, save_path=None, title=""):
  
  
 def plot_n_maps(rounds, save_path=None, title=""):
-    """Numero cumulato di ricalcoli della mappa (n_maps) vs round, per client."""
+    """Cumulative number of map recomputations (n_maps) vs round, per client."""
     train_s = collect_train_series_per_client(rounds)
     clients = sorted(train_s)
     fig, ax = plt.subplots(figsize=(8, 5), constrained_layout=True)
@@ -1157,14 +1157,14 @@ def plot_n_maps(rounds, save_path=None, title=""):
 # =====================================================================
 
 def plot_drift_by_client(folder, strategy_names, save_path=None, title=None, num_clients=5):
-    """Plotta drift per client ID: un subplot per client, una curva per strategia.
+    """Plot the drift by client ID: one subplot per client, one curve per strategy.
 
     folder: cartella con i JSON
     strategy_names: lista di nomi strategia da confrontare (es. ["fedavg", "fedadam"])
     """
     from collections import defaultdict
 
-    # Per ogni strategia, raccogli drift per (client_id, round) aggregato su seed
+    # For each strategy, collect the drift by (client_id, round), aggregated over seeds
     strategy_data = {}  # label -> {client_id -> {round -> [drift values]}}
 
     for strat_name in strategy_names:
@@ -1209,7 +1209,7 @@ def plot_drift_by_client(folder, strategy_names, save_path=None, title=None, num
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
 
-    # Nascondi subplot vuoti
+    # Hide the empty subplots
     for i in range(num_clients, len(axes)):
         axes[i].set_visible(False)
 
