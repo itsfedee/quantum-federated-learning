@@ -1,9 +1,3 @@
-# Nel repository entra solo il codice: dati, risultati e figure restano locali.
-#
-# La regola e' inversa rispetto al solito: si ignora tutto quello che sta nella
-# radice e si riammette a mano il poco che serve. Cosi' una nuova cartella di
-# risultati e' ignorata di default, senza doverla aggiungere qui ogni volta.
-
 /*
 
 # --- codice e configurazione -------------------------------------------
@@ -39,6 +33,4 @@ __pycache__/
 *.tex
 *.log
 
-# Le poche figure mostrate nel README sono l'eccezione alla riga *.png qui
-# sopra: sono versionate apposta, perche' chi apre il repo le veda subito.
 !/figures/*.png
