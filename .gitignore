@@ -2,10 +2,7 @@
 
 !/.gitignore
 !/README.md
-# pyproject.toml non si riammette qui: e' gia' tracciato, e .gitignore non
-# tocca i file tracciati. La riga '!/pyproject.toml' annullerebbe invece
-# l'esclusione che flwr fa dello stesso file quando costruisce il FAB,
-# che finirebbe nel bundle due volte e ne romperebbe la verifica.
+
 !/*.py
 !/*.ps1
 
