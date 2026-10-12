@@ -30,6 +30,4 @@ __pycache__/
 *.tex
 *.log
 
-# Le poche figure mostrate nel README sono l'eccezione alla riga *.png qui
-# sopra: sono versionate apposta, perche' chi apre il repo le veda subito.
 !/figures/*.png
