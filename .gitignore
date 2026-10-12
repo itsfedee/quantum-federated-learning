@@ -1,6 +1,5 @@
 /*
 
-# --- codice e configurazione -------------------------------------------
 !/.gitignore
 !/README.md
 # pyproject.toml non si riammette qui: e' gia' tracciato, e .gitignore non
@@ -17,14 +16,14 @@
 !/thesis_plots/
 !/tools/
 
-# --- rumore, anche dentro le cartelle riammesse ------------------------
+
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
 .ipynb_checkpoints/
 
-# Nessun risultato dentro le cartelle di codice.
+
 *.json
 *.npz
 *.png
