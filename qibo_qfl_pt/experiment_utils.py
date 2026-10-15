@@ -9,42 +9,57 @@ import glob
 class ExperimentPath:
     """Builds and parses the structured paths of the experiments.
 
-    Schema: results/{distribution}/{strategy}/{mode}/{noise}/nshots_{N}/
+    Schema: results/{campaign}/federated/{distribution}/{strategy}/{mode}[/{noise}]/
+
+    This is the same tree that thesis_plots reads (see thesis_plots/paths.py),
+    so a run launched with the defaults lands where the figures look for it.
+    The noise level is a folder only for noisy and mitigated runs; a noiseless
+    run has none. The number of shots is not part of the path: it is recorded
+    in the "info" block of every run JSON.
     """
 
     ROOT = "results"
+    CAMPAIGN = "noise_and_mitigation"
+    PIPELINE = "federated"
 
     @staticmethod
     def build(
         strategy: str,
         mode: str,
-        noise: str,
-        nshots: int | str,
+        noise: str | None = None,
+        nshots: int | str | None = None,
         distribution: str = "iid",
         root: str | None = None,
+        campaign: str | None = None,
     ) -> str:
         """Build the save_path from the experiment parameters.
 
         Args:
-            strategy: es. "fedavg", "fedadam", "fedyogi"
+            strategy: e.g. "fedavg", "fedadam", "fedyogi"
             mode: "noiseless", "noisy", "mitigated"
-            noise: es. "uniform_p0.005_r0.005", "scaled_p0.005_r0.005_s0.002"
-            nshots: es. 1000, 5000, "none"
-            distribution: "iid" o "non_iid"
-            root: directory radice (default: "results")
+            noise: e.g. "uniform_p0.005_r0.005", "scaled_p0.005_r0.005_s0.002";
+                ignored when mode is "noiseless"
+            nshots: accepted for compatibility, no longer part of the path
+            distribution: "iid" or "non_iid"
+            root: root directory (default: "results")
+            campaign: campaign folder under root (default: "noise_and_mitigation")
 
         Returns:
-            Path come stringa, es. "results/iid/fedavg/noisy/uniform_p0.005_r0.005/nshots_1000"
+            Path as a string, e.g.
+            "results/noise_and_mitigation/federated/iid/fedavg/noisy/scaled_p0.005_r0.005_s0.002"
         """
-        root = root or ExperimentPath.ROOT
         parts = [
-            root,
+            root or ExperimentPath.ROOT,
+            campaign or ExperimentPath.CAMPAIGN,
+            ExperimentPath.PIPELINE,
             distribution,
             strategy.lower(),
             mode,
-            noise,
-            f"nshots_{nshots}",
         ]
+        if mode != "noiseless":
+            if not noise:
+                raise ValueError(f"mode '{mode}' needs a noise label")
+            parts.append(noise)
         return "/".join(parts)
 
     @staticmethod
@@ -52,25 +67,26 @@ class ExperimentPath:
         """Extract the parameters from a structured path.
 
         Returns:
-            dict con chiavi: distribution, strategy, mode, noise, nshots
+            dict with keys: campaign, distribution, strategy, mode, noise
+            (None for noiseless runs), path. A path that does not follow the
+            schema returns only "path".
         """
         parts = Path(path).parts
-        # Find the "nshots_*" level and walk back up
+        # Anchor on the "federated" level and read the levels below it.
         for i, part in enumerate(parts):
-            if part.startswith("nshots_"):
-                nshots_raw = part.replace("nshots_", "")
-                try:
-                    nshots_val = int(nshots_raw)
-                except ValueError:
-                    nshots_val = nshots_raw
-                return {
-                    "distribution": parts[i - 4],
-                    "strategy": parts[i - 3],
-                    "mode": parts[i - 2],
-                    "noise": parts[i - 1],
-                    "nshots": nshots_val,
+            if part == ExperimentPath.PIPELINE and i >= 1 and len(parts) >= i + 4:
+                mode = parts[i + 3]
+                info = {
+                    "campaign": parts[i - 1],
+                    "distribution": parts[i + 1],
+                    "strategy": parts[i + 2],
+                    "mode": mode,
+                    "noise": None,
                     "path": str(path),
                 }
+                if mode != "noiseless" and len(parts) > i + 4:
+                    info["noise"] = parts[i + 4]
+                return info
         return {"path": str(path)}
 
     @staticmethod
@@ -78,12 +94,12 @@ class ExperimentPath:
         """Build the noise config string from the numeric parameters.
 
         Args:
-            base_pauli: errore Pauli base
-            base_readout: errore readout base
-            scale: variazione tra client (0 = uniforme)
+            base_pauli: base Pauli error
+            base_readout: base readout error
+            scale: spread between clients (0 = uniform)
 
         Returns:
-            es. "uniform_p0.005_r0.005" o "scaled_p0.005_r0.005_s0.002"
+            e.g. "uniform_p0.005_r0.005" or "scaled_p0.005_r0.005_s0.002"
         """
         if scale == 0:
             return f"uniform_p{base_pauli}_r{base_readout}"
@@ -93,29 +109,33 @@ class ExperimentPath:
 def discover_experiments(root: str | None = None) -> list[dict]:
     """Scan the results directory and return the list of experiments found.
 
-    Ogni elemento è un dict con: distribution, strategy, mode, noise, nshots, n_seeds, path
+    An experiment is a folder that holds run JSONs (*_seed*.json) and follows
+    the ExperimentPath schema. Every element is a dict with: campaign,
+    distribution, strategy, mode, noise, nshots, n_seeds, n_files, path.
+    nshots is read from the "info" block of the first run, when present.
 
-    Se pandas è disponibile, puoi convertire con:
+    With pandas available, convert with:
         pd.DataFrame(discover_experiments())
     """
     root = root or ExperimentPath.ROOT
     experiments = []
 
-    for nshots_dir in Path(root).rglob("nshots_*"):
-        if not nshots_dir.is_dir():
-            continue
-        json_files = list(nshots_dir.glob("*.json"))
-        if not json_files:
-            continue
-
-        info = ExperimentPath.parse(str(nshots_dir))
+    folders = sorted({f.parent for f in Path(root).rglob("*_seed*.json")})
+    for folder in folders:
+        info = ExperimentPath.parse(str(folder))
         if "distribution" not in info:
             continue
 
-        # Count the seeds (files matching *_seed*.json)
+        json_files = sorted(folder.glob("*.json"))
         seed_files = [f for f in json_files if "_seed" in f.name]
         info["n_seeds"] = len(seed_files)
         info["n_files"] = len(json_files)
+        info["nshots"] = None
+        try:
+            with open(seed_files[0], encoding="utf-8") as fh:
+                info["nshots"] = json.load(fh).get("info", {}).get("nshots")
+        except (OSError, ValueError):
+            pass
         experiments.append(info)
 
     # Sort, so the output stays consistent

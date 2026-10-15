@@ -8,7 +8,7 @@ from pathlib import Path
 from flwr.app import ArrayRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from qibo_qfl_pt.custom_strategy import fedavg, fedadam, fedyogi, fedadagrad, fedprox
-from qibo_qfl_pt.task import create_model, evaluate_model, get_weights, set_weights, load_data_server, set_seed
+from qibo_qfl_pt.task import create_model, evaluate_model, get_weights, set_weights, load_data_server, set_seed, check_shapes
 
 
 app = ServerApp()
@@ -26,7 +26,7 @@ strategies = {
 def main(grid: Grid, context: Context) -> None:
     """Main entry point for the ServerApp."""
 
-    # ── 1. Read the configuration parameters ────────────────────────────
+    # -- 1. Read the configuration parameters -----------------------------
 
     # Run params (number of clients, number of rounds, ...)
     num_rounds = context.run_config["num-server-rounds"]
@@ -43,6 +43,9 @@ def main(grid: Grid, context: Context) -> None:
 
     model_type = context.run_config.get("model-type", "quantum")
     hidden_classical = int(context.run_config.get("hidden-classical", 9))
+    circuit = context.run_config.get("circuit", "2q")
+    dataset = context.run_config.get("dataset", "circle")
+    check_shapes(circuit, dataset)
 
     # Strategy params (name, LR, ...)
     strategy_name = context.run_config["strategy"]
@@ -85,8 +88,8 @@ def main(grid: Grid, context: Context) -> None:
         }
 
 
-    # ── 2. Create the strategy ──────────────────────────────────────────
-    save_path = context.run_config.get("save-path", "federated_results/iid/default")
+    # -- 2. Create the strategy ------------------------------------------------
+    save_path = context.run_config.get("save-path", "federated_results/default")
     seed_label = context.run_config.get("seed-label", "") or None
 
     strategy_kwargs = {
@@ -108,6 +111,8 @@ def main(grid: Grid, context: Context) -> None:
         "nshots": nshots_info,
         "training_mode": mode,
         "model_type": model_type,
+        "circuit": circuit,
+        "dataset": dataset,
         "seed_label": seed_label,
     }
 
@@ -135,18 +140,18 @@ def main(grid: Grid, context: Context) -> None:
 
     strategy = strategy_class(**strategy_kwargs)
 
-    # ── 3. Create the model and the initial weights ─────────────────────
+    # -- 3. Create the model and the initial weights --------------------------
     set_seed(init_seed)
-    model = create_model(model_type=model_type, hidden_classical=hidden_classical)
+    model = create_model(model_type=model_type, hidden_classical=hidden_classical, circuit=circuit)
     arrays = ArrayRecord(get_weights(model))
     del model
 
 
-    # ── 4. Define the global evaluation ─────────────────────────────────
+    # -- 4. Define the global evaluation ------------------------------------
     def global_evaluate(server_round: int, arrays: ArrayRecord, testing: bool) -> MetricRecord:
         """Evaluate on centralized validation or test set."""
-        x_val, y_val = load_data_server(ndata=context.run_config["n-eval-data"], testing=testing)
-        model = create_model(model_type=model_type, hidden_classical=hidden_classical)
+        x_val, y_val = load_data_server(ndata=context.run_config["n-eval-data"], testing=testing, dataset=dataset)
+        model = create_model(model_type=model_type, hidden_classical=hidden_classical, circuit=circuit)
         set_weights(model, arrays.to_numpy_ndarrays())
         loss, acc, f1 = evaluate_model(model, x_val, y_val)
         print(f"Server eval - Loss: {loss:.4f}, Accuracy: {acc:.4f}, F1: {f1:.4f}")
@@ -156,8 +161,8 @@ def main(grid: Grid, context: Context) -> None:
 
     def global_train_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         """Evaluate global model on the full (non-partitioned) training set."""
-        x_train, y_train = load_data_server(ndata=context.run_config["n-train-data"], testing=False)
-        model = create_model(model_type=model_type, hidden_classical=hidden_classical)
+        x_train, y_train = load_data_server(ndata=context.run_config["n-train-data"], testing=False, dataset=dataset)
+        model = create_model(model_type=model_type, hidden_classical=hidden_classical, circuit=circuit)
         set_weights(model, arrays.to_numpy_ndarrays())
         loss, acc, f1 = evaluate_model(model, x_train, y_train)
         print(f"Server train eval - Loss: {loss:.4f}, Accuracy: {acc:.4f}, F1: {f1:.4f}")
@@ -165,7 +170,7 @@ def main(grid: Grid, context: Context) -> None:
         gc.collect()
         return MetricRecord({"accuracy": acc, "loss": loss, "f1_score": f1})
 
-    # ── 5. Start the federated simulation ───────────────────────────────
+    # -- 5. Start the federated simulation -----------------------------------
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
@@ -174,7 +179,7 @@ def main(grid: Grid, context: Context) -> None:
         train_evaluate_fn=global_train_evaluate,
     )
 
-    # ── 6. Save the final weights ───────────────────────────────────────
+    # -- 6. Save the final weights -----------------------------------------
     if context.run_config.get("save-weights", True):
         if param_name == "eta":
             param_str = f"_eta{eta}"

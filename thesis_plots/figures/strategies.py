@@ -1,15 +1,15 @@
-"""Confronto fra strategie federate.
+"""Comparison between federated strategies.
 
-Due gruppi:
+Two groups:
 
-  comparison  cap. 4.1, le cinque strategie a 40 round contro il centralizzato,
-              IID e non-IID, piu' lo sweep di eta_l di FedAvg
-  under_noise cap. 4.2 e appendice, le stesse strategie sotto rumore statico,
-              mitigazione e deriva (random walk e Ornstein-Uhlenbeck)
+  comparison  ch. 4.1, the five strategies at 40 rounds against the
+              centralized run, IID and non-IID, plus the eta_l sweep of FedAvg
+  under_noise ch. 4.2 and appendix, the same strategies under static noise,
+              mitigation and drift (random walk and mean-reverting)
 
-Il primo gruppo legge le metriche lato server delle run a 40 round, il secondo
-quelle lato client delle campagne a 10 round: sono due campagne diverse, non
-due letture della stessa.
+The first group reads the server-side metrics of the 40-round runs, the
+second the client-side ones of the 10-round campaigns: they are two different
+campaigns, not two readings of the same one.
 """
 from pathlib import Path
 
@@ -22,8 +22,8 @@ SEEDS = palette.SEEDS
 MAX_ROUND = 40
 METRICS = palette.METRICS_SERVER
 
-# Configurazione scelta dal tuning per ciascuna strategia. FedAdam e' l'unica
-# che cambia fra IID e non-IID.
+# Configuration chosen by the tuning for each strategy. FedAdam is the only
+# one that changes between IID and non-IID.
 STRATEGY_FILES = {
     "FedAvg":     "fedavg_etal0.3_seed{seed}.json",
     "FedProx":    "fedprox_mu0.03_etal0.3_seed{seed}.json",
@@ -51,18 +51,18 @@ STATIC_P005 = "scaled_p0.005_r0.005_s0.002"
 
 
 # =====================================================================
-# 4.1 - confronto a 40 round
+# 4.1 - comparison at 40 rounds
 # =====================================================================
 
 def _as_pct(metric, med, dev):
-    """Accuratezza e F1 in punti percentuali, la loss resta com'e'."""
+    """Accuracy and F1 in percentage points, the loss stays as it is."""
     if palette.METRIC_INFO[metric]["pct"]:
         return med * 100, dev * 100
     return med, dev
 
 
 def _centralized_reference(ax, x, med, dev):
-    """Riferimento centralizzato: tratteggio grigio dietro alle altre curve."""
+    """Centralized reference: grey dashes behind the other curves."""
     ax.plot(x, med, color="0.3", lw=1.5, ls="--", label="Centralized", zorder=0)
     ax.fill_between(x, med - dev, med + dev, alpha=0.08, color="0.5", zorder=0)
 
@@ -87,8 +87,8 @@ def _comparison_panel(axes, dist, adam_pattern, centr_data):
 
     if centr_data is not None:
         for ax, m in zip(axes, METRICS):
-            # Il centralizzato registra due epoche per round: si campiona una
-            # epoca su due per riportarlo sulla scala dei round.
+            # The centralized run records two epochs per round: one epoch in
+            # two is sampled to bring it onto the round scale.
             _, mat = centr_data[m]
             sampled = mat[:, ::2]
             n_points = min(sampled.shape[1], MAX_ROUND + 1)
@@ -109,7 +109,7 @@ def _comparison_panel(axes, dist, adam_pattern, centr_data):
 
 
 def comparison():
-    """Le tre figure di 4.1: IID, non-IID e sweep di eta_l."""
+    """The three figures of 4.1: IID, non-IID and the eta_l sweep."""
     out = Path(paths.ensure(paths.FIG_STRATEGY))
     centr = loaders.centralized_curves(paths.STRATEGY_CEN, SEEDS, 80)
 
@@ -139,16 +139,17 @@ def comparison():
         if m == "loss":
             ax.set_ylim(bottom=0.28)
     ts.legend_above(fig, axes[0], ncol=4)
-    # Lo sweep di eta_l non e' impaginato: sta fra le figure esplorative.
+    # The eta_l sweep is not in the document: it sits among the exploratory
+    # figures.
     ts.save(fig, f"{paths.ensure(paths.EXTRA)}/04_fedavg_iid_tuning")
 
 
 # =====================================================================
-# 4.2 e appendice - le stesse strategie sotto rumore
+# 4.2 and appendix - the same strategies under noise
 # =====================================================================
 
 def _strategy_arms(folder_of):
-    """Le cinque curve di strategia, con colore, marcatore e sfasamento."""
+    """The five strategy curves, with colour, marker and offset."""
     return [(name,
              loaders.read_federated(folder_of(name.lower())),
              palette.STRATEGY_COLORS[name],
@@ -159,7 +160,7 @@ def _strategy_arms(folder_of):
 
 
 def under_noise():
-    """Le figure di confronto fra strategie sotto rumore, deriva e mitigazione."""
+    """The strategy comparison figures under noise, drift and mitigation."""
     out = Path(paths.ensure(paths.FIG_NOISE))
 
     centr = loaders.read_centralized(paths.CENTRALIZED)
@@ -171,41 +172,34 @@ def under_noise():
     ref_ni = [("Centralized", centr, palette.CENTRALIZED, "--", None, 0),
               ("FedAvg (noiseless)", noiseless_ni, "C0", "--", None, 0)]
 
-    # --- rumore statico e mitigazione, p = 0.005 -----------------------
-    # Sotto non-IID FedAvg tiene i suoi file in noisy/p0.005 e
-    # mitigated/p0.005, le altre strategie in scaled_p0.005_r0.005_s0.002.
-    def static(base, regime, fedavg_sub=None):
-        def folder(strat):
-            if strat == "fedavg" and fedavg_sub:
-                return f"{base}/fedavg/{regime}/{fedavg_sub}"
-            return f"{base}/{strat}/{regime}/{STATIC_P005}"
-        return folder
+    # --- static noise and mitigation, p = 0.005 -------------------------
+    def static(base, regime):
+        return lambda strat: f"{base}/{strat}/{regime}/{STATIC_P005}"
 
-    # Le due figure del braccio mitigato stanno in appendice, col prefisso
-    # del capitolo 6; le altre due in 4.2 come il resto della sezione.
+    # The two figures of the mitigated arm sit in the appendix, with the
+    # chapter 6 prefix; the other two in 4.2 like the rest of the section.
     mit_out = Path(paths.ensure(paths.FINAL_06))
-    # Le varianti random walk non sono impaginate.
+    # The random walk variants are not in the document.
     extra = paths.ensure(paths.EXTRA)
-    for base, refs, dist, fedavg_sub in (
-            (paths.IID, ref_iid, "iid", None),
-            (paths.NON_IID, ref_ni, "noniid", "p0.005")):
+    for base, refs, dist in ((paths.IID, ref_iid, "iid"),
+                             (paths.NON_IID, ref_ni, "noniid")):
         for regime in ("noisy", "mitigated"):
             dest = (mit_out / f"06_strategy_comparison_mitigated_{dist}_p005"
                     if regime == "mitigated"
                     else out / f"04_strategy_comparison_noisy_{dist}_p005")
             draw.scenario_panels(
-                refs + _strategy_arms(static(base, regime, fedavg_sub)),
+                refs + _strategy_arms(static(base, regime)),
                 str(dest))
 
-    # --- deriva random walk --------------------------------------------
+    # --- random walk drift ---------------------------------------------
     for sub, refs, dist in ((f"{paths.DRIFT_RW}/noisy_iid", ref_iid, "iid"),
                             (f"{paths.DRIFT_RW}/noisy_non_iid", ref_ni, "noniid")):
         draw.scenario_panels(
             refs + _strategy_arms(lambda s, sub=sub: f"{sub}/{s}"),
             f"{extra}/04_strategy_comparison_drift_{dist}_p005_RW")
 
-    # --- deriva Ornstein-Uhlenbeck --------------------------------------
-    # La deriva impaginata in 4.2 e' questa: il nome resta senza suffisso.
+    # --- mean-reverting walk drift --------------------------------------
+    # This is the drift in the 4.2 document: the name stays without suffix.
     draw.scenario_panels(
         ref_iid + _strategy_arms(
             lambda s: f"{paths.DRIFT_OU}/iid/{s}/noisy"),
@@ -215,8 +209,9 @@ def under_noise():
             lambda s: f"{paths.DRIFT_OU}/non_iid/{s}/noisy"),
         str(out / "04_strategy_comparison_drift_noniid_p005"))
 
-    # --- FedAvg non-IID: noiseless vs statico vs deriva ------------------
-    noisy_ni = loaders.read_federated(f"{paths.FEDAVG_NON_IID}/noisy/p0.005")
+    # --- FedAvg non-IID: noiseless vs static vs drift --------------------
+    noisy_ni = loaders.read_federated(
+        paths.static_noise(paths.FEDAVG_NON_IID, "noisy", 0.005))
     for drift_folder, suffix, dest in (
             (f"{paths.DRIFT_OU}/non_iid/fedavg/noisy", "", str(out)),
             (f"{paths.DRIFT_RW}/noisy_non_iid/fedavg", "_RW", extra)):

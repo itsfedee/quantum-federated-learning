@@ -23,8 +23,13 @@ IS_MACOS = platform.system() == "Darwin"
 # Command line arguments
 # =====================================================================
 # Usage examples:
-#   python parallel_experiments.py --strategy FedProx --workers 4
-#   python parallel_experiments.py --strategy FedAdam --workers 6
+#   python parallel_experiments.py --workers 5
+#       runs the campaign exactly as written in the "runs" block below
+#   python parallel_experiments.py --strategy FedProx --rounds 40 --workers 4
+#   python parallel_experiments.py --strategy FedAdam --mode noisy --noise 0.005 --nshots 1000 --workers 4
+#   python parallel_experiments.py --mode mitigated --noise 0.005 --nshots 1000 --dry-run
+#
+# Every option left out keeps the value written in the "runs" block.
 
 
 # =====================================================================
@@ -32,15 +37,19 @@ IS_MACOS = platform.system() == "Darwin"
 # Top level: the workers spawned on Windows import them.
 # =====================================================================
 
-# The hyperparameters chosen by the tuning, for reference when adding a
-# strategy to the campaign below: (server param, value, client param,
-# value). FedAdam is the only one that differs between IID and non-IID.
-#
-#   FedAvg       None  None   eta_l 0.3
-#   FedProx      mu    0.03   eta_l 0.3
-#   FedAdagrad   eta   0.3    eta_l 0.2
-#   FedAdam      eta   0.2    eta_l 0.15     (non-IID: eta 0.1, eta_l 0.1)
-#   FedYogi      eta   0.1    eta_l 0.1
+# The hyperparameters chosen by the tuning: (server param, value, client
+# param, value). --strategy takes them from here. FedAdam is the only one
+# that differs between IID and non-IID.
+STRATEGY_HP = {
+    "FedAvg":     (None,  None, "eta_l", 0.3),
+    "FedProx":    ("mu",  0.03, "eta_l", 0.3),
+    "FedAdagrad": ("eta", 0.3,  "eta_l", 0.2),
+    "FedAdam":    ("eta", 0.2,  "eta_l", 0.15),
+    "FedYogi":    ("eta", 0.1,  "eta_l", 0.1),
+}
+STRATEGY_HP_NON_IID = {
+    "FedAdam":    ("eta", 0.1,  "eta_l", 0.1),
+}
 
 
 # =====================================================================
@@ -253,6 +262,12 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
     if job["distribution"] == "non_iid":
         parts.append('iid=false')
         parts.append('alpha=1.8')
+    if job.get("circuit"):
+        parts.append(f'circuit="{job["circuit"]}"')
+    if job.get("dataset"):
+        parts.append(f'dataset="{job["dataset"]}"')
+    if job.get("save_scatter"):
+        parts.append('save-scatter=true')
 
     config_string = " ".join(parts)
 
@@ -346,7 +361,47 @@ if __name__ == '__main__':
         "--strategy",
         type=str,
         default=None,
-        help="If given, run only that strategy. Otherwise run them all.",
+        choices=sorted(STRATEGY_HP),
+        help="Run this strategy, with the tuned hyperparameters of STRATEGY_HP. "
+             "Default: the strategies written in the campaign.",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default=None,
+        choices=["noiseless", "noisy", "mitigated"],
+        help="Override the mode of the campaign.",
+    )
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        default=None,
+        help="Override the number of server rounds.",
+    )
+    parser.add_argument(
+        "--noise",
+        type=float,
+        default=None,
+        help="Base noise level: sets base_pauli and base_readout to this value.",
+    )
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=None,
+        help="Override the per-client spread of the noise around the base level.",
+    )
+    parser.add_argument(
+        "--nshots",
+        type=str,
+        default=None,
+        help="Override the number of shots ('none' = exact expectation values).",
+    )
+    parser.add_argument(
+        "--save-path",
+        type=str,
+        default=None,
+        help="Destination folder. Default: the one of the campaign, or the one "
+             "built by ExperimentPath when mode/noise/nshots are overridden.",
     )
     parser.add_argument(
         "--workers",
@@ -365,6 +420,9 @@ if __name__ == '__main__':
         action="store_true",
         help="Print the jobs and their destination folder without running them."
     )
+    parser.add_argument("--save-scatter", action="store_true",
+                    help="Save the CDR training points (noisy vs noise-free) of every client.")
+    
     args = parser.parse_args()
 
     print(f">>> Platform: {platform.system()} ({platform.machine()})")
@@ -416,8 +474,51 @@ if __name__ == '__main__':
                 # name: (server param, value, client param, value, seeds)
                 "FedAvg": (None, None, "eta_l", 0.3, SEEDS),
             },
+            "circuit": "2q",
+            "dataset": "circle",
         },
     ]
+
+    # -----------------------------------------------------------------
+    # Command-line overrides, applied to every block of the campaign.
+    # Whatever is not given on the command line keeps the value above.
+    # -----------------------------------------------------------------
+    for run in runs:
+        if args.strategy is not None:
+            table = STRATEGY_HP_NON_IID if run["distribution"] == "non_iid" else {}
+            hp = table.get(args.strategy, STRATEGY_HP[args.strategy])
+            run["strategies"] = {args.strategy: (*hp, SEEDS)}
+        if args.rounds is not None:
+            run["num_rounds"] = args.rounds
+        if args.mode is not None:
+            run["mode"] = args.mode
+        if args.noise is not None:
+            run["base_pauli"] = run["base_readout"] = args.noise
+        if args.scale is not None:
+            run["scale"] = args.scale
+        if args.nshots is not None:
+            run["nshots"] = None if args.nshots.lower() == "none" else int(args.nshots)
+        if args.save_scatter:
+            run["save_scatter"] = True
+
+        # Mode and noise level must agree.
+        if run["mode"] == "noiseless":
+            if args.noise or args.scale:
+                print("ERROR: a noiseless run cannot have --noise or --scale > 0.")
+                sys.exit(1)
+            run["base_pauli"] = run["base_readout"] = run["scale"] = 0.0
+        elif run["base_pauli"] == 0 and run["base_readout"] == 0:
+            print(f"ERROR: mode '{run['mode']}' with zero noise: pass --noise "
+                  f"(or set base_pauli/base_readout in the campaign).")
+            sys.exit(1)
+
+        # The folder written in the campaign describes the campaign as written:
+        # once mode, noise or shots change, the runs must not land there.
+        noise_overridden = any(v is not None for v in (args.mode, args.noise, args.scale, args.nshots))
+        if args.save_path is not None:
+            run["save_path_override"] = args.save_path
+        elif noise_overridden:
+            run.pop("save_path_override", None)
 
     # The strategies actually defined above: --strategy picks among these.
     available = sorted({s for run in runs for s in run["strategies"]})
@@ -492,6 +593,9 @@ if __name__ == '__main__':
                     "cdr_mode": run.get("cdr_mode"),
                     "cdr_beta": run.get("cdr_beta"),
                     "cdr_intra_beta": run.get("cdr_intra_beta"),
+                    "circuit": run.get("circuit"),
+                    "dataset": run.get("dataset"),
+                    "save_scatter": run.get("save_scatter")
                 }
 
                 # Seed isolation: the seeds in overrides are held fixed,
@@ -521,7 +625,10 @@ if __name__ == '__main__':
     if args.dry_run:
         for job in jobs:
             print(f"  {job['strategy']:<11} seed {job['seed']}  "
-                  f"{job['mode']}, {job.get('num_rounds')} round")
+                  f"{job['mode']}, {job.get('num_rounds')} round, "
+                  f"pauli {job['base_pauli']}, readout {job['base_readout']}, "
+                  f"scale {job['scale']}, nshots {job['nshots']}, "
+                  f"{job['srv_name']}={job['srv_val']} {job['cli_name']}={job['cli_val']}")
         destinazioni = sorted({job["save_path"] for job in jobs})
         print("\n  destination:")
         for d in destinazioni:

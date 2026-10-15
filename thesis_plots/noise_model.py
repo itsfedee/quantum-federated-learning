@@ -1,27 +1,27 @@
-"""Ricostruzione delle traiettorie di rumore usate nelle run.
+"""Reconstruction of the noise trajectories used in the runs.
 
-build_noise_model (qibo_qfl_pt/task.py) e' deterministico e stateless: il
-generatore riparte da [walk_seed, partition_id] a ogni round e ripercorre gli
-stessi passi. Le traiettorie si riproducono quindi qui, senza rilanciare
-niente e senza dipendere da qibo.
+build_noise_model (qibo_qfl_pt/task.py) is deterministic and stateless: the
+generator restarts from [walk_seed, partition_id] at every round and retraces
+the same steps. The trajectories are therefore reproduced here, without
+relaunching anything and without depending on qibo.
 
-La parte statica usa un generatore separato, seminato col solo partition_id,
-che sparpaglia i client attorno al valore base.
+The static part uses a separate generator, seeded with partition_id only,
+which scatters the clients around the base value.
 """
 import numpy as np
 
-# Mappa seed della run -> walk seed, come in parallel_experiments.
+# Map run seed -> walk seed, as in parallel_experiments.
 WALK_SEED_MAP = {1: 1, 2: 11, 3: 12, 4: 20, 5: 21, 6: 22, 7: 24}
 
 
 def trajectories(walk_seed, base=0.005, scale=0.002, sigma=0.001, theta=0.3,
                  n_rounds=10, n_clients=5):
-    """Rumore Pauli e readout per client e per round.
+    """Pauli and readout noise per client and per round.
 
-    theta e' il richiamo del processo di Ornstein-Uhlenbeck verso il valore di
-    partenza: dX = theta*(0 - X) + sigma*dW. Con theta = 0 il processo degenera
-    nel random walk delle campagne piu' vecchie, dove la varianza cresce coi
-    round invece di restare stazionaria.
+    theta is the pull of the Ornstein-Uhlenbeck process towards the starting
+    value: dX = theta*(0 - X) + sigma*dW. With theta = 0 the process
+    degenerates into the random walk of the older campaigns, where the
+    variance grows with the rounds instead of staying stationary.
     """
     pauli = np.zeros((n_clients, n_rounds + 1))
     readout = np.zeros((n_clients, n_rounds + 1))

@@ -1,15 +1,15 @@
-"""Tabelle LaTeX della tesi.
+"""LaTeX tables of the thesis.
 
-  strategy   corpi delle tabelle di 4.1 (confronto fra strategie e tuning)
-  quality    soglia CDR contro costo, qualita' e stabilita' della loss
-  savings    calibrazioni risparmiate dalla memoria, federato vs centralizzato
-  drift      centralizzato, statico contro deriva OU
-  parameters distanza nei pesi e Delta loss sotto valutazione pulita
+  strategy   bodies of the 4.1 tables (strategy comparison and tuning)
+  quality    CDR threshold against cost, quality and stability of the loss
+  savings    calibrations saved by the memory, federated vs centralized
+  drift      centralized, static against OU drift
+  parameters weight distance and Delta loss under clean evaluation
 
-Le prime finiscono in thesis_images/cap_04_Results/tables/, le altre nella
-cartella delle tabelle della campagna (thesis_images/tables/ per l'OU,
-NEW_THESIS_IMAGES_RW/ per la random walk), ciascuna
-accompagnata dal CSV con le colonne che nel .tex non entrano.
+The first ones go to thesis_images/cap_04_Results/tables/, the others to the
+table folder of the campaign (thesis_images/tables/ for OU,
+NEW_THESIS_IMAGES_RW/ for the random walk), each accompanied by the CSV with
+the columns that do not fit in the .tex.
 """
 import csv
 import glob
@@ -27,7 +27,7 @@ METRICS = palette.METRICS_SERVER
 
 
 # =====================================================================
-# 4.1: confronto fra strategie e tuning di eta_l
+# 4.1: strategy comparison and eta_l tuning
 # =====================================================================
 
 FINAL_ROUND = 40
@@ -47,7 +47,7 @@ TUNING_SEEDS = [1001, 1002, 1003]
 ETA_L_VALUES = [0.001, 0.005, 0.01, 0.15, 0.2, 0.25, 0.3, 0.35]
 
 EXAMPLE_TABLE = r"""
-% === Esempio ambiente table da usare su Overleaf ===
+% === Example table environment to use on Overleaf ===
 \begin{table}[ht]
 \centering
 \caption{Strategy comparison — IID, round 40.}
@@ -74,9 +74,10 @@ def _row(name, vals):
 
 
 def strategy():
-    """Corpi .tex delle tabelle di 4.1, mediana +/- MAD sui sette seed."""
+    """.tex bodies of the 4.1 tables, median +/- MAD over the seven seeds."""
     out = Path(paths.ensure(paths.TABLES))
-    # L'epoca 80 del centralizzato corrisponde al round 40 del federato.
+    # Epoch 80 of the centralized run corresponds to round 40 of the
+    # federated one.
     centr = loaders.centralized_final(paths.STRATEGY_CEN, SEEDS, 80)
 
     for dist, strategies, name in (
@@ -110,7 +111,7 @@ def strategy():
 
 
 # =====================================================================
-# Soglia contro costo, qualita' e stabilita'
+# Threshold against cost, quality and stability
 # =====================================================================
 
 QUALITY_CAPTION = [
@@ -138,12 +139,12 @@ QUALITY_CAPTION = [
 
 
 def quality(regime="OU", variants=("no_memory", "ema")):
-    """Tabella soglia x (costo, qualita', stabilita'), un blocco per variante.
+    """Table threshold x (cost, quality, stability), one block per variant.
 
-    Accompagna la figura loss-contro-round: le curve mediane delle soglie si
-    sovrappongono quasi ovunque e nascondono proprio la parte che conta, cioe'
-    che allentando la soglia con la memoria la loss di plateau non peggiora ma
-    la sua varianza si'.
+    It accompanies the loss-against-round figure: the median curves of the
+    thresholds overlap almost everywhere and hide exactly the part that
+    matters, namely that loosening the threshold with the memory does not
+    worsen the plateau loss but does worsen its variance.
     """
     reg = memory.REGIMES[regime]
     out = Path(paths.ensure(reg.tables))
@@ -155,7 +156,7 @@ def quality(regime="OU", variants=("no_memory", "ema")):
     for v in variants:
         for t in reg.thresholds:
             e = stats[(v, t)]
-            d = e["sd"] - stats[(v, ref)]["sd"]      # appaiata seed per seed
+            d = e["sd"] - stats[(v, ref)]["sd"]      # paired seed by seed
             k, n = int((d > 0).sum()), len(d)
             rows.append({
                 "variant": v, "thresh": t, "n": len(e["cal"]),
@@ -208,12 +209,12 @@ def quality(regime="OU", variants=("no_memory", "ema")):
     L += [r"    \bottomrule", r"  \end{tabular}", r"\end{table}"]
     (out / "tab_thresh_vs_quality.tex").write_text("\n".join(L) + "\n",
                                                    encoding="utf-8")
-    print("  tab_thresh_vs_quality.tex e .csv")
+    print("  tab_thresh_vs_quality.tex and .csv")
     return rows
 
 
 # =====================================================================
-# Calibrazioni risparmiate dalla memoria
+# Calibrations saved by the memory
 # =====================================================================
 
 SAVINGS_CAPTION = [
@@ -248,17 +249,18 @@ SAVINGS_CAPTION = [
 
 
 def savings_rows(thresholds, getter, duration=1):
-    """Righe (soglia, mediane, tasso, risparmio) per un regime.
+    """Rows (threshold, medians, rate, saving) for one regime.
 
-    Il risparmio in tabella e' quello fra le due mediane, cosi' che il lettore
-    lo ritrovi dalle due colonne accanto. Il rapporto appaiato seed per seed,
-    piu' solido ma non ricostruibile a occhio, finisce nel CSV insieme al test
-    dei segni; i seed che non calibrano mai senza memoria sono esclusi dal
-    rapporto perche' lo renderebbero indefinito.
+    The saving in the table is the one between the two medians, so that the
+    reader can recover it from the two columns next to it. The ratio paired
+    seed by seed, sounder but not reconstructible by eye, goes to the CSV
+    together with the sign test; the seeds that never calibrate without
+    memory are excluded from the ratio because they would make it undefined.
 
-    Il tasso divide per la durata del protocollo - round nel federato, epoche
-    nel centralizzato - e resta quindi una frequenza interna a ciascun regime.
-    Non e' una quantita' da leggere trasversalmente ai due blocchi.
+    The rate divides by the duration of the protocol - rounds in the
+    federated regime, epochs in the centralized one - and thus remains a
+    frequency internal to each regime. It is not a quantity to be read
+    across the two blocks.
     """
     rows = []
     for t in thresholds:
@@ -283,11 +285,11 @@ def savings_rows(thresholds, getter, duration=1):
 
 
 def savings(regime="OU", thresholds=(0.015, 0.05, 0.2)):
-    """Quanto costo toglie la memoria, federato contro centralizzato.
+    """How much cost the memory removes, federated against centralized.
 
-    Le soglie in tabella sono tre fra quelle presenti in entrambe le campagne,
-    distribuite sul range. Nel centralizzato non esiste 0.1, quindi la riga
-    larga e' 0.2, che c'e' da entrambe le parti.
+    The thresholds in the table are three of those present in both
+    campaigns, spread over the range. The centralized one has no 0.1, so the
+    loose row is 0.2, which exists on both sides.
     """
     reg = memory.REGIMES[regime]
     out = Path(paths.ensure(reg.tables))
@@ -340,15 +342,15 @@ def savings(regime="OU", thresholds=(0.015, 0.05, 0.2)):
     L += [r"    \bottomrule", r"  \end{tabular}", r"\end{table}"]
     (out / "tab_memory_savings.tex").write_text("\n".join(L) + "\n",
                                                 encoding="utf-8")
-    print("  tab_memory_savings.tex e .csv")
+    print("  tab_memory_savings.tex and .csv")
 
 
 # =====================================================================
-# Centralizzato: statico contro deriva OU
+# Centralized: static against OU drift
 # =====================================================================
 
 def drift(regime="OU"):
-    """Ricalibrazioni del centralizzato con e senza deriva, appaiate per seed."""
+    """Recalibrations of the centralized run with and without drift, paired by seed."""
     reg = memory.REGIMES[regime]
     out = Path(paths.ensure(reg.tables))
 
@@ -395,12 +397,12 @@ def drift(regime="OU"):
     ]
     (out / "tab_centralized_drift.tex").write_text("\n".join(L) + "\n",
                                                    encoding="utf-8")
-    print(f"  tab_centralized_drift.tex  (rapporto mediano {np.median(ratios):.2f},"
+    print(f"  tab_centralized_drift.tex  (median ratio {np.median(ratios):.2f},"
           f" {k}/{len(rows)}, p={loaders.sign_test(k, len(rows)):.3f})")
 
 
 # =====================================================================
-# Parametri: distanza nei pesi e Delta loss sotto valutazione pulita
+# Parameters: weight distance and Delta loss under clean evaluation
 # =====================================================================
 
 PARAMETERS_CAPTION = [
@@ -419,11 +421,11 @@ PARAMETERS_CAPTION = [
 
 
 def parameters(regime="OU"):
-    """Distanza nei pesi e Delta loss valutata attraverso il canale pulito.
+    """Weight distance and Delta loss evaluated through the clean channel.
 
-    Richiede qibo: ogni set di pesi va rivalutato senza rumore (~200
-    valutazioni, un paio di minuti). Gli import stanno dentro la funzione
-    perche' tutte le altre tabelle si producono senza.
+    Needs qibo: every set of weights must be re-evaluated without noise
+    (~200 evaluations, a couple of minutes). The imports sit inside the
+    function because every other table is produced without it.
     """
     reg = memory.REGIMES[regime]
     out = Path(paths.ensure(reg.tables))
@@ -513,16 +515,16 @@ def parameters(regime="OU"):
     L += [r"    \bottomrule", r"  \end{tabular}", r"\end{table}"]
     (out / "tab_parameters.tex").write_text("\n".join(L) + "\n",
                                             encoding="utf-8")
-    print(f"  scritti tab_parameters.tex e .csv ({len(cache)} valutazioni)")
+    print(f"  written tab_parameters.tex and .csv ({len(cache)} evaluations)")
     return res
 
 
 def memory_tables(regime="OU"):
-    """Le tabelle della campagna sulla memoria.
+    """The tables of the memory campaign.
 
-    tab_parameters resta fuori: e' l'unica che rivaluta il modello e va chiesta
-    a parte (tables.parameters), altrimenti un giro completo delle figure si
-    ferma qui dove qibo non c'e'.
+    tab_parameters stays out: it is the only one that re-evaluates the model
+    and must be requested separately (tables.parameters), otherwise a full
+    pass over the figures stops here where qibo is missing.
     """
     quality(regime)
     savings(regime)

@@ -1,8 +1,8 @@
-"""Primitive di disegno comuni alle figure del capitolo 4.
+"""Drawing primitives shared by the chapter 4 figures.
 
-Quasi tutte le figure hanno la stessa forma: tre pannelli affiancati (loss,
-accuracy, F1), una curva mediana per braccio con banda MAD, marcatori sfasati
-e legenda unica sopra. Quella forma sta qui una volta sola.
+Almost every figure has the same shape: three panels side by side (loss,
+accuracy, F1), one median curve per arm with a MAD band, staggered markers
+and a single legend above. That shape lives here, once.
 """
 import numpy as np
 
@@ -10,7 +10,7 @@ from . import palette, style as ts
 
 
 def band(ax, x, med, dev, color, alpha=0.15, zorder=1, floor=None):
-    """Banda MAD attorno alla mediana."""
+    """MAD band around the median."""
     lo = med - dev if floor is None else np.maximum(med - dev, floor)
     ax.fill_between(x, lo, med + dev, color=color, alpha=alpha, lw=0,
                     zorder=zorder)
@@ -18,7 +18,7 @@ def band(ax, x, med, dev, color, alpha=0.15, zorder=1, floor=None):
 
 def curve(ax, x, med, dev, label, color, marker=None,
           marker_every=None, marker_offset=0, lw=None, alpha=0.15):
-    """Curva mediana con banda, marcatori diradati e sfasati."""
+    """Median curve with band, thinned and staggered markers."""
     lw = ts.LINEWIDTH if lw is None else lw
     every = ts.MARKEVERY if marker_every is None else marker_every
     ax.plot(x, med, color=color, lw=lw, label=label, marker=marker,
@@ -27,12 +27,12 @@ def curve(ax, x, med, dev, label, color, marker=None,
 
 
 def scenario_panels(scenarios, out_path, metrics=("loss", "accuracy", "f1")):
-    """Figura a piu' pannelli da curve gia' aggregate (read_federated & co.).
+    """Multi-panel figure from already aggregated curves (read_federated & co.).
 
-    scenarios e' una lista di tuple (etichetta, dati, colore, stile di linea,
-    marcatore, sfasamento). Il tratteggio identifica i riferimenti - il
-    centralizzato e il FedAvg noiseless - che vanno dietro alle altre curve e
-    con banda piu' tenue.
+    scenarios is a list of tuples (label, data, colour, line style, marker,
+    marker offset). The dashed style marks the references - the centralized
+    run and the noiseless FedAvg - which go behind the other curves with a
+    fainter band.
     """
     fig, axes = ts.panels(len(metrics))
     if len(metrics) == 1:
@@ -63,11 +63,11 @@ def scenario_panels(scenarios, out_path, metrics=("loss", "accuracy", "f1")):
 
 
 def arm_panels(arms, out_path, metrics=None):
-    """Figura a tre pannelli da matrici grezze (seed, round).
+    """Three-panel figure from raw (seed, round) matrices.
 
-    arms e' un dizionario etichetta -> {"data", "color", "ls", "marker",
-    "lw"}, con data nel formato di loaders.client_arms. L'accuratezza si
-    riporta in percentuale.
+    arms is a dictionary label -> {"data", "color", "ls", "marker", "lw"},
+    with data in the format of loaders.client_arms. Accuracy is reported in
+    percent.
     """
     metrics = metrics or palette.METRICS_CLIENT
     fig, axes = ts.panels(len(metrics))

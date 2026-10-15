@@ -10,10 +10,34 @@ python -m thesis_plots noise               un gruppo intero
 python -m thesis_plots all                 tutte, tranne quelle che usano qibo
 python -m thesis_plots all --with-qibo     proprio tutte (lento)
 python -m thesis_plots all --keep-going    prosegue anche se una fallisce
+python -m thesis_plots noise --results D:/dati --out D:/figure
+                                           dati e figure in un'altra radice
 ```
 
 Il runner si sposta nella radice del repository prima di produrre qualsiasi
-cosa, quindi i comandi funzionano da qualunque cartella.
+cosa, quindi i comandi funzionano da qualunque cartella. Le radici passate
+con `--results`, `--out` e `--archive` si risolvono rispetto alla cartella da
+cui lanci il comando; senza opzioni valgono `results/`, `thesis_images/` e
+`archive/` dentro il repository. La struttura sotto la radice non cambia:
+`--results` serve a chi tiene i dati altrove, `--out` a rigenerare una figura
+di prova senza sovrascrivere quella impaginata.
+
+## Confronti al volo
+
+Per guardare un risultato che non ha una figura registrata c'è `compare`: si
+danno le cartelle delle run, aggrega con mediana e MAD sui seed e disegna i
+tre pannelli in `thesis_images/extra/`.
+
+```
+python -m thesis_plots.compare nome FedAvg=cartella FedProx=cartella --ref Centralized=cartella
+```
+
+Le sorgenti possono essere cartelle o percorsi con jolly (`.../fedavg_*.json`)
+quando più bracci condividono la stessa cartella. Con `--ref` le curve di
+riferimento escono tratteggiate e dietro alle altre; `--metrics`, `--max-round`
+e `--out` scelgono pannelli, troncamento e destinazione. In fondo a
+`compare.py` c'è anche un blocco `esempio()` da editare, per chi preferisce
+lavorare sul file.
 
 ## Com'è fatto
 

@@ -1,18 +1,18 @@
-"""Figure e tabelle della tesi.
+"""Thesis figures and tables.
 
-Un modulo per capitolo sotto thesis_plots/figures/, e sotto thesis_plots/ i
-pezzi condivisi: stile, percorsi, colori, lettura dei JSON, primitive di
-disegno. Le figure si producono dal runner:
+One module per chapter under thesis_plots/figures/, and under thesis_plots/
+the shared pieces: style, paths, colours, JSON loading, drawing primitives.
+Figures are produced by the runner:
 
-    python -m thesis_plots --list        elenco delle figure
-    python -m thesis_plots noise         un gruppo
-    python -m thesis_plots all           tutto
+    python -m thesis_plots --list        list of figures
+    python -m thesis_plots noise         one group
+    python -m thesis_plots all           everything
 
-Per un confronto al volo fra cartelle di run, fuori dalle figure registrate:
+For a quick comparison between run folders, outside the registered figures:
 
-    python -m thesis_plots.compare confronto FedAvg=<cartella> FedProx=<cartella>
+    python -m thesis_plots.compare confronto FedAvg=<folder> FedProx=<folder>
 
-o, da uno script:
+or, from a script:
 
     from thesis_plots.compare import compare
 """
@@ -20,4 +20,3 @@ from . import draw, loaders, noise_model, palette, paths, style
 
 __all__ = ["draw", "loaders", "noise_model", "palette", "paths",
            "style"]
-

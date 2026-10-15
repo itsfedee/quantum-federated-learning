@@ -7,7 +7,7 @@ name = "qiboml-flower-tutorial"
 version = "1.0.0"
 description = "Quantum Federated Learning with Qiboml and Flower"
 license = "Apache-2.0"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "flwr[simulation]==1.27.0",
     "flwr-datasets[vision]==0.6.0",
@@ -15,6 +15,10 @@ dependencies = [
     "qiboml[torch]==0.1.0",
     "scikit-learn",
     "matplotlib",
+    "numpy",
+    "torch",
+    "scipy",
+    "datasets",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -28,69 +32,65 @@ serverapp = "qibo_qfl_pt.server_app:app"
 clientapp = "qibo_qfl_pt.client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 10
-iid = true
-num-clients = 5
-batch-size = 8
-local-epochs = 2
-fraction-fit = 0.75
-fraction-evaluate = 0.75
-min-available-clients = 2
-num-partitions = 5
 
-mode = "noisy"
-
+# model and data
+circuit = "2q"
+dataset = "circle"
+model-type = "quantum"
+hidden-classical = 9
 n-train-data = 500
 n-eval-data = 200
 
+# federation
+strategy = "FedAvg"
+num-server-rounds = 10
+num-clients = 5
+num-partitions = 5
+min-available-clients = 2
+fraction-fit = 0.75
+fraction-evaluate = 0.75
+iid = true
+alpha = 1.8
+
+# local training
+local-epochs = 2
+batch-size = 8
+eta_l = 0.35
+eta = 0.1
+mu = 0.05
+
+# noise (mode = noiseless, noisy, mitigated)
+mode = "noiseless"
+nshots = "none"
 base-pauli = 0.005
 base-readout = 0.005
 scale = 0.002
-
-alpha = 1.8
-walk-sigma=0.0001
+walk-sigma = 0.0001
+walk-seed = 7
 drift-type = "rw"
 walk-theta = 0.1
 
-seed=2
-data-seed=2
-init-seed=2
-sampling-seed=2
-walk-seed=7
-seed-label = ""
+# error mitigation (cdr)
 cdr-threshold = 0.015
 cdr-mode = "no_memory"
 cdr-beta = 0.5
 cdr-intra-beta = 0
 
+# seeds
+seed = 2
+data-seed = 2
+init-seed = 2
+sampling-seed = 2
+seed-label = ""
 
-strategy = "FedAvg"
-eta = 0.1
-eta_l = 0.35
-mu = 0.05
-model-type = "quantum"
-hidden-classical = 9
-nshots = "none"
-save-path = "fedavg_test"
+# output
+save-path = "default_path"
 save-weights = true
+save-scatter = false
 testing = true
 run-id = 0
 
 
-#######################################################################
-# CONFIGURATION MIGRATION NOTICE:
-#
-# What was previously called "federation config" for SuperLink
-# connections in pyproject.toml has been renamed and moved.
-#
-# These settings are now **SuperLink connection configuration**
-# and are defined in the Flower configuration file.
-#
-# The entries below are commented out intentionally and are kept
-# only as a migration reference.
-#
-# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
-#######################################################################
 
 #######################################################################
 # CONFIGURATION MIGRATION NOTICE:
@@ -107,30 +107,110 @@ run-id = 0
 # Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
 #######################################################################
 
+# [tool.flwr.federations]
+#   default = "local-simulation"
 
-#######################################################################
-# CONFIGURATION MIGRATION NOTICE:
-#
-# What was previously called "federation config" for SuperLink
-# connections in pyproject.toml has been renamed and moved.
-#
-# These settings are now **SuperLink connection configuration**
-# and are defined in the Flower configuration file.
-#
-# The entries below are commented out intentionally and are kept
-# only as a migration reference.
-#
-# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
-#######################################################################
-
-#            [tool.flwr.federations]
-#             default = "local-simulation"
-
-#           [tool.flwr.federations.local-simulation]
-#             options.num-supernodes = 5
+# [tool.flwr.federations.local-simulation]
+#   options.num-supernodes = 5
 
 
-# # # # # # # # # # # # # # # # # [tool.flwr.federations.local-simulation-gpu]
-# # # # # # # # # # # # # # # # # options.num-supernodes = 5
-# # # # # # # # # # # # # # # # # options.backend.client-resources.num-cpus = 2
-# # # # # # # # # # # # # # # # # options.backend.client-resources.num-gpus = 0.2
+# # # # # # # # # # # # # # # # # # # [tool.flwr.federations.local-simulation-gpu]
+# # # # # # # # # # # # # # # # # # # options.num-supernodes = 5
+# # # # # # # # # # # # # # # # # # # options.backend.client-resources.num-cpus = 2
+# # # # # # # # # # # # # # # # # # # options.backend.client-resources.num-gpus = 0.2
+
+
+# The versions the thesis results were produced with (see
+# requirements-lock.txt). `uv lock` resolves within these pins, so that
+# `uv sync` rebuilds the same environment; a constraint only applies to a
+# package that is required anyway, it never adds one.
+[tool.uv]
+constraint-dependencies = [
+    "Jinja2==3.1.6",
+    "Mako==1.3.10",
+    "MarkupSafe==3.0.2",
+    "PyYAML==6.0.3",
+    "Pygments==2.19.2",
+    "SQLAlchemy==2.0.48",
+    "alembic==1.18.4",
+    "anyio==4.12.1",
+    "attrs==25.4.0",
+    "certifi==2026.2.25",
+    "cffi==2.0.0",
+    "charset-normalizer==3.4.5",
+    "click==8.3.1",
+    "cma==3.4.0",
+    "colorama==0.4.6",
+    "colorlog==6.10.1",
+    "contourpy==1.3.3",
+    "cryptography==46.0.6",
+    "cycler==0.12.1",
+    "datasets==4.8.4",
+    "dill==0.4.1",
+    "filelock==3.20.0",
+    "flwr-datasets==0.6.0",
+    "flwr==1.27.0",
+    "fonttools==4.62.0",
+    "fsspec==2025.12.0",
+    "greenlet==3.3.2",
+    "grpcio-health-checking==1.78.0",
+    "grpcio==1.78.0",
+    "h11==0.16.0",
+    "hf-xet==1.4.2",
+    "httpcore==1.0.9",
+    "httpx==0.28.1",
+    "huggingface_hub==1.8.0",
+    "idna==3.11",
+    "iterators==0.0.2",
+    "jax==0.4.38",
+    "jaxlib==0.4.38",
+    "joblib==1.5.3",
+    "jsonschema-specifications==2025.9.1",
+    "jsonschema==4.26.0",
+    "kiwisolver==1.5.0",
+    "markdown-it-py==4.0.0",
+    "matplotlib==3.10.8",
+    "ml_dtypes==0.5.4",
+    "mpmath==1.3.0",
+    "msgpack==1.1.2",
+    "multiprocess==0.70.19",
+    "networkx==3.6.1",
+    "numpy==2.2.6",
+    "openqasm3==1.0.1",
+    "opt_einsum==3.4.0",
+    "optuna==4.7.0",
+    "packaging==26.0",
+    "pandas==3.0.1",
+    "pathspec==0.12.1",
+    "pillow==12.0.0",
+    "protobuf==6.33.6",
+    "pyarrow==23.0.1",
+    "pycparser==3.0",
+    "pycryptodome==3.23.0",
+    "pyparsing==3.3.2",
+    "python-dateutil==2.9.0.post0",
+    "qibo==0.2.22",
+    "qiboml==0.1.0",
+    "ray==2.51.1",
+    "referencing==0.37.0",
+    "requests==2.32.5",
+    "rich==13.9.4",
+    "rpds-py==0.30.0",
+    "scikit-learn==1.8.0",
+    "scipy==1.17.1",
+    "seaborn==0.13.2",
+    "shellingham==1.5.4",
+    "six==1.17.0",
+    "sympy==1.14.0",
+    "tabulate==0.9.0",
+    "threadpoolctl==3.6.0",
+    "tomli==2.4.1",
+    "tomli_w==1.2.0",
+    "torch==2.11.0",
+    "tqdm==4.67.3",
+    "typer==0.20.1",
+    "typing_extensions==4.15.0",
+    "tzdata==2025.3",
+    "urllib3==2.6.3",
+    "xxhash==3.6.0",
+]

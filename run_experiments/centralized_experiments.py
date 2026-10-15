@@ -26,7 +26,8 @@ from sklearn.metrics import f1_score
 # Imported from qibo_qfl_pt (patches + shared functions)
 import qibo_qfl_pt.patches  # noqa: F401 — applica i patch PSR e CDR
 from qibo_qfl_pt.task import (
-    set_seed, create_model, get_weights, NQUBITS,
+    set_seed, create_model, get_weights, CIRCUITS, readout_matrix,
+    generate_data as generate_data_dict, check_shapes
 )
 
 import qibo
@@ -38,28 +39,26 @@ from qibo.noise import NoiseModel, PauliError, ReadoutError, gates
 # Functions specific to the centralized setting
 # =====================================================================
 
-def generate_data(ndata=100, seed=42):
-    """Generate circle-in-square data as PyTorch tensors."""
-    rng = np.random.default_rng(seed)
-    x = rng.uniform(-1, 1, size=(ndata, 2))
-    y = (np.linalg.norm(x, axis=1) <= 1.0).astype(np.float64)
-    return torch.tensor(x, dtype=torch.float64), torch.tensor(y, dtype=torch.float64)
+def generate_data(ndata=100, seed=42, dataset="circle", split="train"):
+    """Data from the dataset registry of task.py, as PyTorch tensors."""
+    data = generate_data_dict(ndata, seed, dataset, split)
+    return (torch.tensor(data["point"], dtype=torch.float64),
+            torch.tensor(data["label"], dtype=torch.float64))
 
 
-def build_noise_model_centralized(pauli_prob, readout_prob):
+def build_noise_model_centralized(pauli_prob, readout_prob, nqubits=2):
     """Noise model without partition_id/scale (centralized)."""
     noise = NoiseModel()
-    for q in range(NQUBITS):
+    for q in range(nqubits):
         noise.add(
             PauliError([("X", pauli_prob), ("Y", pauli_prob), ("Z", pauli_prob)]),
             qubits=q,
         )
-    single = np.array([
-        [1 - readout_prob, readout_prob],
-        [readout_prob, 1 - readout_prob],
-    ])
-    readout_matrix = np.kron(single, single)
-    noise.add(ReadoutError(readout_matrix), gate=gates.M, qubits=[0, 1])
+    noise.add(
+        ReadoutError(readout_matrix(readout_prob, nqubits)),
+        gate=gates.M,
+        qubits=list(range(nqubits)),
+    )
     return noise
 
 
@@ -95,11 +94,9 @@ def _set_decoding_noise(model, noise_model):
     dec.noise_model = noise_model
 
 
-def build_mitigation_config(readout_prob, threshold=0.015, with_memory=False, memory_beta=0.2):
+def build_mitigation_config(readout_prob, threshold=0.015, with_memory=False, memory_beta=0.2, nqubits=2):
     """CDR config for the mitigation."""
-    single = np.array([[1 - readout_prob, readout_prob],
-                       [readout_prob, 1 - readout_prob]])
-    response_matrix = np.kron(single, single)
+    response_matrix = readout_matrix(readout_prob, nqubits)
     cfg = {
         "threshold": threshold,
         "min_iterations": 500,
@@ -124,10 +121,10 @@ def get_trainable_params(model):
 
 def train_and_evaluate(model, ndata_train, seed, epochs, lr, batch_size,
                        ndata_eval=200, seed_eval=40, job_tag="",
-                       noise_update_fn=None):
+                       noise_update_fn=None, dataset="circle"):
     """Train, returning the per-epoch metrics and the final weights."""
-    x_train, y_train = generate_data(ndata=ndata_train, seed=seed)
-    x_eval, y_eval = generate_data(ndata=ndata_eval, seed=seed_eval)
+    x_train, y_train = generate_data(ndata=ndata_train, seed=seed, dataset=dataset, split="train")
+    x_eval, y_eval = generate_data(ndata=ndata_eval, seed=seed_eval, dataset=dataset, split="test")
     loss_fn = nn.BCELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
 
@@ -247,11 +244,16 @@ def run_single_job(job):
     else:
         print(f"  [START] {job['mode']} p={job['pauli_prob']} seed={job['seed']}", flush=True)
 
+    circuit = job.get("circuit", "2q")
+    dataset = job.get("dataset", "circle")
+    check_shapes(circuit, dataset)
+    nqubits = CIRCUITS[circuit].nqubits
+
     noise_model = None
     mitigation_config = None
 
     if job["mode"] in ("noisy", "mitigated"):
-        noise_model = build_noise_model_centralized(job["pauli_prob"], job["readout_prob"])
+        noise_model = build_noise_model_centralized(job["pauli_prob"], job["readout_prob"], nqubits)
 
     if job["mode"] == "mitigated":
         mitigation_config = build_mitigation_config(
@@ -259,6 +261,7 @@ def run_single_job(job):
             threshold=job.get("cdr_threshold", 0.015),
             with_memory=job.get("with_memory", False),
             memory_beta=job.get("memory_beta", 0.2),
+            nqubits=nqubits,
         )
 
     # Per-epoch drift (noisy/mitigated only, when walk_sigma > 0)
@@ -273,10 +276,9 @@ def run_single_job(job):
 
         def noise_update_fn(model, epoch):
             p_t, r_t = drifted_probs(p0, r0, epoch, walk_sigma, wseed, dtype_, theta)
-            _set_decoding_noise(model, build_noise_model_centralized(p_t, r_t))
+            _set_decoding_noise(model, build_noise_model_centralized(p_t, r_t, nqubits))
             if mit_cfg is not None:
-                single = np.array([[1 - r_t, r_t], [r_t, 1 - r_t]])
-                mit_cfg["method_kwargs"]["readout"]["response_matrix"] = np.kron(single, single)
+                mit_cfg["method_kwargs"]["readout"]["response_matrix"] = readout_matrix(r_t, nqubits)
             return (p_t, r_t)
 
     nshots = job["nshots"]
@@ -286,6 +288,7 @@ def run_single_job(job):
         noise_model=noise_model,
         mitigation_config=mitigation_config,
         hidden_classical=job.get("hidden_classical"),
+        circuit=circuit,
     )
 
     if job["mode"] == "noiseless":
@@ -302,12 +305,15 @@ def run_single_job(job):
         batch_size=job["batch_size"],
         job_tag=tag,
         noise_update_fn=noise_update_fn,
+        dataset=dataset,
     )
 
     # Save the JSON
     result = {
         "info": {
             "mode": job["mode"],
+            "circuit": circuit,
+            "dataset": dataset,
             "seed": job["seed"],
             "pauli_prob": job["pauli_prob"],
             "readout_prob": job["readout_prob"],
@@ -371,6 +377,10 @@ if __name__ == "__main__":
     parser.add_argument("--model-type", type=str, default="quantum",
                         choices=["quantum", "hybrid", "classical"],
                         help="Model type: quantum, hybrid, classical.")
+    parser.add_argument("--circuit", type=str, default="2q", choices=sorted(CIRCUITS),
+                        help="Circuit from the registry in task.py. Default: 2q.")
+    parser.add_argument("--dataset", type=str, default="circle",
+                        help="Dataset from the registry in task.py. Default: circle.")
     parser.add_argument("--hidden", type=int, default=None,
                         help="Number of hidden units for the classical model.")
     parser.add_argument("--cdr-threshold", type=float, default=0.015,
@@ -442,6 +452,8 @@ if __name__ == "__main__":
         "batch_size": args.batch_size,
         "ndata": args.ndata,
         "model_type": args.model_type,
+        "circuit": args.circuit,
+        "dataset": args.dataset,
         "cdr_threshold": args.cdr_threshold,
         "with_memory": False,
         "memory_beta": 0.0,
@@ -500,6 +512,8 @@ if __name__ == "__main__":
             "batch_size": args.batch_size,
             "ndata": args.ndata,
             "model_type": args.model_type,
+        "circuit": args.circuit,
+        "dataset": args.dataset,
             "mode": "mitigated",
             "pauli_prob": RW_P,
             "readout_prob": RW_P,

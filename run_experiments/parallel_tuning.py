@@ -1,3 +1,17 @@
+"""
+Hyperparameter tuning: a grid of (server, client) learning parameters for every
+strategy, on noiseless runs evaluated on the validation set (testing=false).
+
+Usage:
+  python parallel_tuning.py --distribution non_iid --workers 8
+  python parallel_tuning.py --distribution iid --strategy FedProx --workers 4
+  python parallel_tuning.py --model-type classical --classical-variant all --workers 8
+  python parallel_tuning.py --circuit 2q --dataset circle --dry-run
+
+The results land in <save-root>_<distribution>/, with a subfolder for every
+setup that is not the default one (see build_save_path).
+"""
+
 import subprocess
 import os
 import sys
@@ -16,82 +30,73 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 IS_WINDOWS = platform.system() == "Windows"
 
-# =====================================================================
-# Command line arguments
-# =====================================================================
-# Usage examples:
-#   python parallel_tuning.py --distribution non_iid --workers 8
-#   python parallel_tuning.py --distribution iid --strategy FedProx --workers 4
-
 
 # =====================================================================
 # Hyperparameter grid for the tuning
 # =====================================================================
+# Every entry of `configs` is (server param, value, client param, value).
 
 SEEDS = [1001, 1002, 1003]
 
+# FedAvg has no server parameter: only the client learning rate is scanned.
+FEDAVG_ETA_L = [0.001, 0.005, 0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35]
+
+# The other strategies scan the same (server value, eta_l) pairs. The server
+# parameter is mu for FedProx and eta for the adaptive strategies.
+SERVER_CLIENT_GRID = [
+    (0.001, 0.01),
+    (0.01,  0.15),
+    (0.03,  0.3),
+    (0.05,  0.1),
+    (0.1,   0.01),
+    (0.1,   0.1),
+    (0.1,   0.3),
+    (0.2,   0.05),
+    (0.2,   0.15),
+    (0.3,   0.2),
+]
+
 configs = {
-    "FedAvg": [
-        (None, None, "eta_l", 0.001),
-        (None, None, "eta_l", 0.005),
-        (None, None, "eta_l", 0.01),
-        (None, None, "eta_l", 0.05),
-        (None, None, "eta_l", 0.1),
-        (None, None, "eta_l", 0.15),
-        (None, None, "eta_l", 0.2),
-        (None, None, "eta_l", 0.25),
-        (None, None, "eta_l", 0.3),
-        (None, None, "eta_l", 0.35),
-    ],
-    "FedProx": [
-        ("mu", 0.001, "eta_l", 0.01),
-        ("mu", 0.01,  "eta_l", 0.15),
-        ("mu", 0.03,  "eta_l", 0.3),
-        ("mu", 0.05,  "eta_l", 0.1),
-        ("mu", 0.1,   "eta_l", 0.01),
-        ("mu", 0.1,   "eta_l", 0.1),
-        ("mu", 0.1,   "eta_l", 0.3),
-        ("mu", 0.2,   "eta_l", 0.05),
-        ("mu", 0.2,   "eta_l", 0.15),
-        ("mu", 0.3,   "eta_l", 0.2),
-    ],
-    "FedAdagrad": [
-        ("eta", 0.001, "eta_l", 0.01),
-        ("eta", 0.01,  "eta_l", 0.15),
-        ("eta", 0.03,  "eta_l", 0.3),
-        ("eta", 0.05,  "eta_l", 0.1),
-        ("eta", 0.1,   "eta_l", 0.01),
-        ("eta", 0.1,   "eta_l", 0.1),
-        ("eta", 0.1,   "eta_l", 0.3),
-        ("eta", 0.2,   "eta_l", 0.05),
-        ("eta", 0.2,   "eta_l", 0.15),
-        ("eta", 0.3,   "eta_l", 0.2),
-    ],
-    "FedAdam": [
-        ("eta", 0.001, "eta_l", 0.01),
-        ("eta", 0.01,  "eta_l", 0.15),
-        ("eta", 0.03,  "eta_l", 0.3),
-        ("eta", 0.05,  "eta_l", 0.1),
-        ("eta", 0.1,   "eta_l", 0.01),
-        ("eta", 0.1,   "eta_l", 0.1),
-        ("eta", 0.1,   "eta_l", 0.3),
-        ("eta", 0.2,   "eta_l", 0.05),
-        ("eta", 0.2,   "eta_l", 0.15),
-        ("eta", 0.3,   "eta_l", 0.2),
-    ],
-    "FedYogi": [
-        ("eta", 0.001, "eta_l", 0.01),
-        ("eta", 0.01,  "eta_l", 0.15),
-        ("eta", 0.03,  "eta_l", 0.3),
-        ("eta", 0.05,  "eta_l", 0.1),
-        ("eta", 0.1,   "eta_l", 0.01),
-        ("eta", 0.1,   "eta_l", 0.1),
-        ("eta", 0.1,   "eta_l", 0.3),
-        ("eta", 0.2,   "eta_l", 0.05),
-        ("eta", 0.2,   "eta_l", 0.15),
-        ("eta", 0.3,   "eta_l", 0.2),
-    ],
+    "FedAvg":     [(None, None, "eta_l", eta_l) for eta_l in FEDAVG_ETA_L],
+    "FedProx":    [("mu", srv, "eta_l", eta_l) for srv, eta_l in SERVER_CLIENT_GRID],
+    "FedAdagrad": [("eta", srv, "eta_l", eta_l) for srv, eta_l in SERVER_CLIENT_GRID],
+    "FedAdam":    [("eta", srv, "eta_l", eta_l) for srv, eta_l in SERVER_CLIENT_GRID],
+    "FedYogi":    [("eta", srv, "eta_l", eta_l) for srv, eta_l in SERVER_CLIENT_GRID],
 }
+
+# Classical model variants: name -> (hidden units, number of clients, folder label)
+CLASSICAL_VARIANTS = {
+    "3h":       (3, 5,  "3_hidden"),
+    "9h":       (9, 5,  "9_hidden"),
+    "9h_20cli": (9, 20, "9_hidden_20clients"),
+}
+
+
+# =====================================================================
+# Destination folder
+# =====================================================================
+
+def build_save_path(save_root, dist, model_type, variant_label=None, circuit=None, dataset=None):
+    """Folder of one tuning setup.
+
+    The default setup (quantum model, circuit and dataset of the pyproject)
+    goes in <save_root>_<dist>/. Every other setup gets its own subfolder:
+    the file names only contain strategy, hyperparameters and seed, so two
+    setups in the same folder would overwrite each other.
+    """
+    path = f"{save_root}_{dist}"
+    if model_type == "classical":
+        path += f"/classical_{variant_label}"
+    elif model_type == "hybrid":
+        path += "/hybrid"
+    setup = []
+    if circuit is not None:
+        setup.append(f"circuit-{circuit}")
+    if dataset is not None:
+        setup.append(f"dataset-{dataset}")
+    if setup:
+        path += "/" + "_".join(setup)
+    return path
 
 
 # =====================================================================
@@ -138,21 +143,24 @@ def final_cleanup():
 
 # =====================================================================
 # Function that runs a single tuning job
+# Top level: it must be importable by the workers (spawn on Windows).
 # =====================================================================
 
 def run_single_job(job, timeout_sec, stagger_max=0.0):
     if stagger_max > 0:
         time.sleep(random.uniform(0, stagger_max))
 
+    # Fixed for every tuning run: noiseless, exact expectation values,
+    # evaluated on the validation set, fixed training set, no weights saved.
     config_parts = [
         f'strategy="{job["strategy"]}"',
         f'seed={job["seed"]}',
-        f'data-seed=2',
+        'data-seed=2',
         f'save-path="{job["save_path"]}"',
-        f'save-weights=false',
-        f'testing=false',
-        f'mode="noiseless"',
-        f'nshots="none"',
+        'save-weights=false',
+        'testing=false',
+        'mode="noiseless"',
+        'nshots="none"',
         f'model-type="{job["model_type"]}"',
         f'init-seed={job["seed"]}',
         f'sampling-seed={job["seed"]}',
@@ -173,6 +181,12 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
         config_parts.append(f'{job["srv_name"]}={job["srv_val"]}')
     config_parts.append(f'{job["cli_name"]}={job["cli_val"]}')
 
+    # Circuit and dataset: passed only when given, otherwise the pyproject decides
+    if job.get("circuit"):
+        config_parts.append(f'circuit="{job["circuit"]}"')
+    if job.get("dataset"):
+        config_parts.append(f'dataset="{job["dataset"]}"')
+
     config_string = " ".join(config_parts)
 
     env = os.environ.copy()
@@ -184,7 +198,10 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
     ray_tmp = tempfile.mkdtemp(prefix=f"ray_tuning_{job['strategy']}_seed{job['seed']}_")
     env['RAY_TMPDIR'] = ray_tmp
 
-    job_label = f"{job['strategy']} {job['srv_name']}={job['srv_val']} {job['cli_name']}={job['cli_val']} seed={job['seed']}"
+    job_label = (
+        f"{job['strategy']} {job['srv_name']}={job['srv_val']} "
+        f"{job['cli_name']}={job['cli_val']} seed={job['seed']}"
+    )
     start_time = time.time()
     print(f"  [START] {job_label}")
 
@@ -240,10 +257,14 @@ def run_single_job(job, timeout_sec, stagger_max=0.0):
 
 
 # =====================================================================
-# Main
+# Main: EVERYTHING under __main__ (spawn on Windows).
 # =====================================================================
 
 if __name__ == '__main__':
+
+    # -----------------------------------------------------------------
+    # Command line arguments
+    # -----------------------------------------------------------------
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--distribution",
@@ -257,6 +278,7 @@ if __name__ == '__main__':
         "--strategy",
         type=str,
         default=None,
+        choices=list(configs),
         help="If given, tune only that strategy.",
     )
     parser.add_argument(
@@ -284,9 +306,21 @@ if __name__ == '__main__':
         type=str,
         nargs="+",
         default=None,
-        choices=["3h", "9h", "9h_20cli", "all"],
+        choices=[*CLASSICAL_VARIANTS, "all"],
         help="Classical model variant(s): 3h, 9h, 9h_20cli, all. "
              "Only used with --model-type classical.",
+    )
+    parser.add_argument(
+        "--circuit",
+        type=str,
+        default=None,
+        help="Circuit from the registry in task.py. Default: the one of the pyproject.",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Dataset from the registry in task.py. Default: the one of the pyproject.",
     )
     parser.add_argument(
         "--num-rounds",
@@ -295,90 +329,76 @@ if __name__ == '__main__':
         help="Number of rounds. Default: 40.",
     )
     parser.add_argument(
+        "--save-root",
+        type=str,
+        default="new_tuning",
+        help="Root of the destination folders: <save-root>_<distribution>. "
+             "Default: new_tuning.",
+    )
+    parser.add_argument(
         "--resume-from",
         type=int,
         default=0,
         help="Skip the first N jobs (to resume where it was interrupted).",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the jobs and their destination folders without running them.",
+    )
     args = parser.parse_args()
 
-    print(f">>> Platform: {platform.system()} ({platform.machine()})")
-    print(f">>> Distributions: {args.distribution}")
+    # -----------------------------------------------------------------
+    # What is going to be tuned
+    # -----------------------------------------------------------------
+    strategies_to_use = [args.strategy] if args.strategy is not None else list(configs)
 
-    pool_stagger = 0.0 if args.workers == 1 else 5.0 * args.workers
-
-    # Strategy
-    if args.strategy is not None:
-        if args.strategy not in configs:
-            print(f"ERROR: strategy '{args.strategy}' not recognised.")
-            print(f"Valid strategies: {list(configs.keys())}")
-            sys.exit(1)
-        strategies_to_use = [args.strategy]
-        print(f">>> Strategy: {args.strategy}")
-    else:
-        strategies_to_use = list(configs.keys())
-        print(f">>> All strategies")
-
-    # Classical variants: (hidden, num_clients, label)
-    CLASSICAL_VARIANTS = {
-        "3h":       (3,  5,  "3_hidden"),
-        "9h":       (9,  5,  "9_hidden"),
-        "9h_20cli": (9,  20, "9_hidden_20clients"),
-    }
-
-    print(f">>> Model types: {args.model_type}")
+    classical_variants = []
     if "classical" in args.model_type:
         if args.classical_variant is None:
             print("ERROR: with --model-type classical you must give --classical-variant")
             sys.exit(1)
         if "all" in args.classical_variant:
-            classical_variants = list(CLASSICAL_VARIANTS.keys())
+            classical_variants = list(CLASSICAL_VARIANTS)
         else:
             classical_variants = args.classical_variant
+
+    pool_stagger = 0.0 if args.workers == 1 else 5.0 * args.workers
+
+    print(f">>> Platform: {platform.system()} ({platform.machine()})")
+    print(f">>> Distributions: {args.distribution}")
+    print(f">>> Strategies: {', '.join(strategies_to_use)}")
+    print(f">>> Model types: {args.model_type}")
+    if classical_variants:
         print(f">>> Classical variants: {classical_variants}")
+    print(f">>> Circuit: {args.circuit or 'pyproject default'}, "
+          f"dataset: {args.dataset or 'pyproject default'}")
     print(f">>> Workers: {args.workers}")
     print(f">>> Timeout: {args.timeout}s")
     print(f">>> Seeds: {SEEDS}\n")
 
-    # =================================================================
+    # -----------------------------------------------------------------
     # Building the job list
-    # =================================================================
-
+    # -----------------------------------------------------------------
     jobs = []
     for dist in args.distribution:
         for mt in args.model_type:
-            # For the classical model we loop over the variants
+            # (hidden units, number of clients, folder label) of every setup of
+            # this model type. Only the classical model has variants.
             if mt == "classical":
-                model_configs = [
-                    (CLASSICAL_VARIANTS[v]) for v in classical_variants
-                ]
-            elif mt == "quantum":
-                model_configs = [(None, None, None)]
-            elif mt == "hybrid":
-                model_configs = [(None, None, None)]
+                model_setups = [CLASSICAL_VARIANTS[v] for v in classical_variants]
+            else:
+                model_setups = [(None, None, None)]
 
-            for hidden, n_cli, label in model_configs:
-                if mt == "quantum":
-                    save_path = f"tuning_{dist}"
-                elif mt == "classical":
-                    save_path = f"fixed_training_set_results/strategy_comparison_fixed/classical/{label}/{dist}/tuning/tuning_experiments"
-                elif mt == "hybrid":
-                    save_path = f"fixed_training_set_results/strategy_comparison_fixed/hybrid/3_layers_6_hidden/{dist}/tuning_3L_6h/tuning_experiments"
-
-
-                save_path = f"new_tuning_{dist}"
+            for hidden, n_cli, label in model_setups:
+                save_path = build_save_path(
+                    args.save_root, dist, mt, label, args.circuit, args.dataset
+                )
                 extra_label = f" hidden={hidden} cli={n_cli}" if hidden else ""
                 print(f">>> [{dist} {mt}{extra_label}] Save path: {save_path}")
 
                 for strategy in strategies_to_use:
-                    for config in configs[strategy]:
-                        if config[0] is None:
-                            srv_name, srv_val = None, None
-                            cli_name, cli_val = config[2], config[3]
-                        else:
-                            srv_name, srv_val = config[0], config[1]
-                            cli_name, cli_val = config[2], config[3]
-
+                    for srv_name, srv_val, cli_name, cli_val in configs[strategy]:
                         for seed in SEEDS:
                             job = {
                                 "strategy": strategy,
@@ -391,6 +411,8 @@ if __name__ == '__main__':
                                 "distribution": dist,
                                 "model_type": mt,
                                 "num_rounds": args.num_rounds,
+                                "circuit": args.circuit,
+                                "dataset": args.dataset,
                             }
                             if hidden is not None:
                                 job["hidden_classical"] = hidden
@@ -403,18 +425,27 @@ if __name__ == '__main__':
     # Resume: skip the first N jobs
     if args.resume_from > 0:
         jobs = jobs[args.resume_from:]
-        print(f"Total jobs: {total} (first {args.resume_from} skipped, {len(jobs)} left)\n")
+        print(f"\nTotal jobs: {total} (first {args.resume_from} skipped, {len(jobs)} left)\n")
     else:
-        print(f"Total jobs: {total}\n")
+        print(f"\nTotal jobs: {total}\n")
 
     remaining = len(jobs)
 
-    # =================================================================
-    # Execution
-    # =================================================================
+    if args.dry_run:
+        destinations = {}
+        for job in jobs:
+            destinations[job["save_path"]] = destinations.get(job["save_path"], 0) + 1
+        print("  destination:")
+        for path, count in destinations.items():
+            print(f"    {path}  ({count} jobs, {'exists' if os.path.isdir(path) else 'to be created'})")
+        print("\n  dry run: no job launched.")
+        sys.exit(0)
 
+    # -----------------------------------------------------------------
+    # Execution: the first job warms up the SuperLink, the others go in the pool
+    # -----------------------------------------------------------------
     print(f"{'='*70}")
-    print(f"Avvio {remaining} jobs ({args.workers} workers dopo warmup)")
+    print(f"Starting {remaining} jobs ({args.workers} workers after warmup)")
     print(f"{'='*70}\n")
 
     start_global = time.time()
@@ -425,8 +456,8 @@ if __name__ == '__main__':
         sys.exit(0)
 
     try:
-        # Warmup
-        print(">>> WARMUP: primo job sequenziale")
+        # Warmup: the first job runs alone
+        print(">>> WARMUP: first job, sequential")
         warmup_status, warmup_label, warmup_elapsed = run_single_job(
             jobs[0], args.timeout, stagger_max=0.0
         )
@@ -439,7 +470,7 @@ if __name__ == '__main__':
         pool_jobs = jobs[1:]
 
         if pool_jobs and args.workers > 1:
-            print(f">>> POOL: {len(pool_jobs)} jobs su {args.workers} workers\n")
+            print(f">>> POOL: {len(pool_jobs)} jobs on {args.workers} workers\n")
             with ProcessPoolExecutor(max_workers=args.workers) as executor:
                 futures = {
                     executor.submit(run_single_job, job, args.timeout, pool_stagger): job
@@ -455,7 +486,7 @@ if __name__ == '__main__':
                         print(f"  [ERROR] {e}")
                         results.append(("error", str(e), 0))
         elif pool_jobs:
-            print(f">>> SEQUENZIALE: {len(pool_jobs)} jobs\n")
+            print(f">>> SEQUENTIAL: {len(pool_jobs)} jobs\n")
             for job in pool_jobs:
                 status, label, elapsed = run_single_job(job, args.timeout, stagger_max=0.0)
                 results.append((status, label, elapsed))
@@ -471,7 +502,7 @@ if __name__ == '__main__':
         error = sum(1 for r in results if r[0] == "error")
 
         print(f"\n{'='*70}")
-        print(f"COMPLETATO in {elapsed_global:.0f}s ({elapsed_global/3600:.2f} ore)")
+        print(f"COMPLETED in {elapsed_global:.0f}s ({elapsed_global/3600:.2f} hours)")
         print(f"  OK:      {ok}/{total}")
         print(f"  FAIL:    {fail}/{total}")
         print(f"  TIMEOUT: {timeout_count}/{total}")
@@ -479,7 +510,7 @@ if __name__ == '__main__':
         print(f"{'='*70}\n")
 
         if fail > 0 or timeout_count > 0 or error > 0:
-            print("Jobs falliti/timeout:")
+            print("Failed/timed-out jobs:")
             for status, label, elapsed in results:
                 if status in ("fail", "timeout", "error"):
                     print(f"  [{status.upper()}] {label}")

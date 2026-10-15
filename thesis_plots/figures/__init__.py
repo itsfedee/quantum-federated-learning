@@ -1,7 +1,7 @@
-"""Registro delle figure: nome -> funzione che la produce.
+"""Figure registry: name -> function that produces it.
 
-I nomi sono <modulo>.<figura>; un nome senza punto e' il gruppo intero, cioe'
-tutte le figure di quel modulo, nell'ordine in cui sono dichiarate.
+Names are <module>.<figure>; a name without a dot is the whole group, that
+is every figure of that module, in declaration order.
 """
 from .. import style as ts
 
@@ -17,9 +17,9 @@ FIGURES = {}
 for _m in MODULES:
     FIGURES.update(_m.FIGURES)
 
-# Figure che valutano il modello quantistico: richiedono qibo, qiboml e le
-# dipendenze delle run, e non girano in pochi secondi come le altre. Restano
-# fuori da "all" e si chiedono per nome o con --with-qibo.
+# Figures that evaluate the quantum model: they need qibo, qiboml and the run
+# dependencies, and do not run in a few seconds like the others. They stay
+# out of "all" and are requested by name or with --with-qibo.
 NEEDS_QIBO = {
     "cap03.partitions",
     "noise.circle",
@@ -29,7 +29,7 @@ NEEDS_QIBO = {
 
 
 def groups():
-    """{gruppo: [nomi]} nell'ordine di dichiarazione."""
+    """{group: [names]} in declaration order."""
     out = {}
     for name in FIGURES:
         out.setdefault(name.split(".")[0], []).append(name)
@@ -37,7 +37,7 @@ def groups():
 
 
 def resolve(names, with_qibo=False):
-    """Espande gruppi e 'all' nella lista dei nomi da produrre."""
+    """Expand groups and 'all' into the list of names to produce."""
     by_group = groups()
     selected = []
     for name in names:
@@ -52,5 +52,5 @@ def resolve(names, with_qibo=False):
     if not with_qibo:
         selected = [n for n in selected
                     if n in names or n not in NEEDS_QIBO]
-    # Dedup conservando l'ordine.
+    # Dedup, keeping the order.
     return list(dict.fromkeys(selected))

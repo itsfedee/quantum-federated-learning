@@ -1,18 +1,18 @@
-"""Lettura dei JSON delle run e statistiche di base.
+"""Reading of the run JSONs and basic statistics.
 
-Ogni funzione qui compariva, identica, in tre o quattro script di plot. La
-differenza fra le copie era la sola forma delle virgolette, quindi si e'
-tenuta una sola versione per ciascuna.
+Every function here appeared, identical, in three or four plotting scripts.
+The only difference between the copies was the quoting style, so a single
+version of each was kept.
 
-Due formati di file, due famiglie di funzioni:
+Two file formats, two families of functions:
 
-    federato       {"info": ..., "rounds": [{"round", "eval_metrics_client",
+    federated      {"info": ..., "rounds": [{"round", "eval_metrics_client",
                                              "eval_metrics_server", ...}]}
-    centralizzato  {"info": ..., "epochs": [{"epoch", "eval_loss", ...}]}
+    centralized    {"info": ..., "epochs": [{"epoch", "eval_loss", ...}]}
 
-Le metriche lato client si chiamano "f1", quelle lato server "f1_score".
-Salvo dove indicato si legge sempre il client: e' la valutazione su cui si
-basano le figure della tesi.
+Client-side metrics are called "f1", server-side ones "f1_score". Unless
+stated otherwise the client side is always read: it is the evaluation the
+thesis figures are based on.
 """
 import glob
 import json
@@ -29,24 +29,24 @@ METRICS = palette.METRICS_CLIENT
 
 
 # =====================================================================
-# Statistiche
+# Statistics
 # =====================================================================
 
 def mad(v):
-    """Deviazione assoluta mediana di un vettore."""
+    """Median absolute deviation of a vector."""
     v = np.asarray(v, dtype=float)
     return float(np.median(np.abs(v - np.median(v))))
 
 
 def median_mad(matrix, axis=0):
-    """Mediana e MAD lungo l'asse dei seed. Funziona anche su un vettore."""
+    """Median and MAD along the seed axis (works on a vector too)."""
     matrix = np.asarray(matrix, dtype=float)
     med = np.median(matrix, axis=axis)
     return med, np.median(np.abs(matrix - med), axis=axis)
 
 
 def sign_test(k, n):
-    """p bilaterale del test dei segni con k successi su n."""
+    """Two-sided p of the sign test with k successes out of n."""
     if n == 0:
         return 1.0
     k = max(k, n - k)
@@ -54,29 +54,28 @@ def sign_test(k, n):
 
 
 # =====================================================================
-# Elenchi di file
+# File lists
 # =====================================================================
 
 def run_files(folder):
-    """JSON delle run in una cartella, escluse le eventuali aggregate."""
+    """Run JSONs in a folder, excluding any aggregated ones."""
     return [f for f in sorted(glob.glob(f"{folder}/*.json"))
             if "aggregated" not in f]
 
 
 def seed_of(path):
-    """Seed dal nome del file, che finisce sempre con _seed<N>.json."""
+    """Seed from the file name, which always ends with _seed<N>.json."""
     return int(str(path).split("seed")[1].split(".")[0])
 
 
 # =====================================================================
-# Curve aggregate sui seed (mediana e MAD gia' calcolate)
+# Curves aggregated over seeds (median and MAD already computed)
 # =====================================================================
 
 def read_federated(folder, source="eval_metrics_client", max_round=None):
-    """Mediana e MAD per round delle tre metriche, su tutti i seed.
+    """Median and MAD per round of the three metrics, over all seeds.
 
-    max_round tronca le run piu' lunghe: il mitigato OU gira per 40 round, ma
-    va confrontato coi 10 delle altre curve.
+    max_round truncates the longer runs.
     """
     merged = defaultdict(lambda: {m: [] for m in METRICS})
     for f in run_files(folder):
@@ -96,7 +95,7 @@ def read_federated(folder, source="eval_metrics_client", max_round=None):
 
 
 def read_centralized(folder, epochs_per_round=2):
-    """Come read_federated, ma sulle epoche, riscalate in round."""
+    """Like read_federated, but over epochs, rescaled to rounds."""
     merged = defaultdict(lambda: {m: [] for m in METRICS})
     for f in sorted(glob.glob(f"{folder}/lr_*_seed*.json")):
         with open(f, encoding="utf-8") as fh:
@@ -122,11 +121,11 @@ def _aggregate(merged, keys, to_round):
 
 
 # =====================================================================
-# Valori finali, un valore per seed
+# Final values, one value per seed
 # =====================================================================
 
 def final_metrics(folder):
-    """Ultimo round con valutazione client, un valore per seed e metrica."""
+    """Last round with a client evaluation, one value per seed and metric."""
     out = {m: [] for m in METRICS}
     for f in run_files(folder):
         with open(f, encoding="utf-8") as fh:
@@ -142,12 +141,12 @@ def final_metrics(folder):
 
 
 def final_loss(folder):
-    """Loss all'ultimo round con valutazione client, un valore per seed."""
+    """Loss at the last round with a client evaluation, one value per seed."""
     return final_metrics(folder)["loss"]
 
 
 def accuracy_by_seed(folder):
-    """Dizionario seed -> {round: accuracy}, per appaiare due bracci."""
+    """Dictionary seed -> {round: accuracy}, to pair two arms."""
     out = {}
     for f in run_files(folder):
         with open(f, encoding="utf-8") as fh:
@@ -159,15 +158,11 @@ def accuracy_by_seed(folder):
 
 
 # =====================================================================
-# Matrici grezze (seed, round)
+# Raw (seed, round) matrices
 # =====================================================================
 
 def client_metrics(files, n_rounds=None, metrics=None):
-    """Metriche client per seed, con ricaduta sul server dove mancano.
-
-    Al round 0 i client non hanno ancora valutato: la ricaduta sul server e'
-    quello che fa entrare il round 0 nella curva.
-    """
+    """Client metrics per seed, falling back to the server where missing."""
     metrics = metrics or METRICS
     data = {m: [] for m in metrics}
     for fp in files:
@@ -189,14 +184,14 @@ def client_metrics(files, n_rounds=None, metrics=None):
 
 def client_arms(folder, seeds, pattern="fedavg_etal0.3_seed{seed}.json",
                 n_rounds=11):
-    """Come client_metrics, ma scegliendo i file per seed invece che a glob."""
+    """Like client_metrics, but picking the files by seed instead of by glob."""
     folder = Path(folder)
     files = [folder / pattern.format(seed=s) for s in seeds]
     return client_metrics([f for f in files if f.exists()], n_rounds)
 
 
 def centralized_arms(folder, seeds, n_epochs=10):
-    """Riferimento centralizzato, stesse chiavi di client_arms."""
+    """Centralized reference, same keys as client_arms."""
     folder = Path(folder)
     cmap = {"loss": "eval_loss", "accuracy": "eval_accuracy", "f1": "eval_f1"}
     data = {m: [] for m in METRICS}
@@ -212,11 +207,11 @@ def centralized_arms(folder, seeds, n_epochs=10):
 
 
 def client_curves(files, key="loss"):
-    """Matrice (seed, round) di una metrica client, sui round comuni.
+    """(seed, round) matrix of a client metric, on the common rounds.
 
-    Si tengono i numeri di round veri e la loro intersezione fra i seed: la
-    valutazione client parte dal round 1, quindi indicizzare con arange()
-    trasterebbe la curva di un round.
+    The true round numbers and their intersection across seeds are kept: the
+    client evaluation starts at round 1, so indexing with arange() would
+    shift the curve by one round.
     """
     per_seed = []
     for f in files:
@@ -235,11 +230,11 @@ def client_curves(files, key="loss"):
 
 
 # =====================================================================
-# Metriche lato server, per il confronto fra strategie a 40 round
+# Server-side metrics, for the 40-round strategy comparison
 # =====================================================================
 
 def server_curves(base_dir, pattern, seeds, max_round, metrics=None):
-    """Matrici (seed, round) delle metriche server, troncate ai round comuni."""
+    """(seed, round) matrices of the server metrics, cut to the common rounds."""
     metrics = metrics or palette.METRICS_SERVER
     base_dir = Path(base_dir)
     all_data = {m: [] for m in metrics}
@@ -262,7 +257,7 @@ def server_curves(base_dir, pattern, seeds, max_round, metrics=None):
 
 
 def centralized_curves(base_dir, seeds, max_epoch, metrics=None):
-    """Come server_curves, sul centralizzato."""
+    """Like server_curves, on the centralized runs."""
     metrics = metrics or palette.METRICS_SERVER
     base_dir = Path(base_dir)
     cmap = {"loss": "eval_loss", "accuracy": "eval_accuracy",
@@ -296,7 +291,7 @@ def _trim(all_data, metrics):
 
 
 def server_final(base_dir, pattern, seeds, final_round, metrics=None):
-    """Metriche server a un round preciso, un valore per seed."""
+    """Server metrics at a given round, one value per seed."""
     metrics = metrics or palette.METRICS_SERVER
     base_dir = Path(base_dir)
     result = {m: [] for m in metrics}
@@ -315,7 +310,7 @@ def server_final(base_dir, pattern, seeds, final_round, metrics=None):
 
 
 def server_last(base_dir, pattern, seeds, metrics=None):
-    """Metriche server all'ultimo round disponibile, un valore per seed."""
+    """Server metrics at the last available round, one value per seed."""
     metrics = metrics or palette.METRICS_SERVER
     base_dir = Path(base_dir)
     result = {m: [] for m in metrics}
@@ -331,7 +326,7 @@ def server_last(base_dir, pattern, seeds, metrics=None):
 
 
 def centralized_final(base_dir, seeds, final_epoch, metrics=None):
-    """Metriche centralizzate a un'epoca precisa, un valore per seed."""
+    """Centralized metrics at a given epoch, one value per seed."""
     metrics = metrics or palette.METRICS_SERVER
     base_dir = Path(base_dir)
     cmap = {"loss": "eval_loss", "accuracy": "eval_accuracy",
@@ -352,11 +347,11 @@ def centralized_final(base_dir, seeds, final_epoch, metrics=None):
 
 
 # =====================================================================
-# Ricalibrazioni della CDR
+# CDR recalibrations
 # =====================================================================
 
 def _n_maps(round_entry):
-    """Ricalibrazioni e controlli di un round, sommati sui client."""
+    """Recalibrations and checks of one round, summed over the clients."""
     n = checks = 0
     for key in ("cdr_train_per_client", "cdr_per_client"):
         for e in (round_entry.get(key) or []):
@@ -366,14 +361,14 @@ def _n_maps(round_entry):
 
 
 def total_calibrations(files):
-    """Totale per seed, ricostruito sommando n_maps su round e client.
+    """Total per seed, rebuilt by summing n_maps over rounds and clients.
 
-    NON si usa info["cdr_total_calibrations"]: la strategia scrive quel campo
-    solo se il conteggio e' > 0 (custom_strategy.py). Un seed che non
-    ricalibra mai - il seed 4 alle soglie da 0.05 in su - non ha il campo, e
-    leggerlo direttamente lo farebbe sparire dal campione proprio dov'e' piu'
-    basso, gonfiando la mediana. La somma di n_maps coincide col contatore
-    quando questo esiste, ed e' 0 quando non esiste.
+    info["cdr_total_calibrations"] is NOT used: the strategy writes that
+    field only when the count is > 0 (custom_strategy.py). A seed that never
+    recalibrates - seed 4 at thresholds from 0.05 upwards - has no such
+    field, and reading it directly would drop it from the sample exactly
+    where it is lowest, inflating the median. The sum of n_maps coincides
+    with the counter when it exists, and is 0 when it does not.
     """
     out = []
     for f in files:
@@ -384,14 +379,14 @@ def total_calibrations(files):
 
 
 def calibration_map(files):
-    """Per seed, coppia (ricalibrazioni, controlli).
+    """Per seed, the pair (recalibrations, checks).
 
-    Il denominatore e' il numero di volte in cui il criterio di affidabilita'
-    e' stato davvero valutato, non il numero di round: ogni client controlla
-    piu' volte per round (11 nello sweep), quindi normalizzare per
-    client-round sbaglierebbe di un ordine di grandezza. Il contatore non e'
-    cumulativo lato client - il mitigatore viene ricreato a ogni round -
-    quindi si somma.
+    The denominator is the number of times the reliability criterion was
+    actually evaluated, not the number of rounds: every client checks
+    several times per round (11 in the sweep), so normalising per
+    client-round would be off by an order of magnitude. The counter is not
+    cumulative on the client side - the mitigator is recreated every round -
+    so it is summed.
     """
     out = {}
     for f in files:
@@ -407,7 +402,7 @@ def calibration_map(files):
 
 
 def cumulative_calibrations(files):
-    """Matrice (seed, round) delle ricalibrazioni cumulate."""
+    """(seed, round) matrix of the cumulative recalibrations."""
     curves = []
     for f in files:
         with open(f, encoding="utf-8") as fh:
@@ -422,11 +417,12 @@ def cumulative_calibrations(files):
 
 
 def centralized_calibrations(folder):
-    """Per seed, coppia (ricalibrazioni, controlli) dello sweep centralizzato.
+    """Per seed, the pair (recalibrations, checks) of the centralized sweep.
 
-    Dizionario e non array: il risparmio si calcola appaiando i seed, e i due
-    rami non sono garantiti completi. Qui n_checks e' gia' cumulativo lungo le
-    epoche, quindi il totale e' l'ultimo valore registrato, non la somma.
+    A dictionary and not an array: the saving is computed by pairing seeds,
+    and the two arms are not guaranteed to be complete. Here n_checks is
+    already cumulative along the epochs, so the total is the last recorded
+    value, not the sum.
     """
     out = {}
     for f in sorted(glob.glob(f"{folder}/*.json")):
@@ -440,9 +436,9 @@ def centralized_calibrations(folder):
 
 
 def declared_calibrations(folder, seeds):
-    """cdr_total_calibrations dichiarato nell'info, un valore per seed.
+    """cdr_total_calibrations as declared in the info, one value per seed.
 
-    Usata solo dagli sweep vecchi, dove il campo c'e' sempre.
+    Used only by the old sweeps, where the field is always present.
     """
     folder = Path(folder)
     vals = []
@@ -456,11 +452,11 @@ def declared_calibrations(folder, seeds):
 
 
 # =====================================================================
-# Tuning degli iperparametri
+# Hyperparameter tuning
 # =====================================================================
 
 def parse_tuning_name(path, strategies):
-    """(strategia, configurazione, seed) dal nome del file di tuning."""
+    """(strategy, configuration, seed) from a tuning file name."""
     head, _, seed = Path(path).stem.rpartition("_seed")
     for strat in sorted(strategies, key=len, reverse=True):
         if head.startswith(strat + "_"):
@@ -469,7 +465,7 @@ def parse_tuning_name(path, strategies):
 
 
 def load_tuning(folder, seeds, strategies, metrics=None, keep=None):
-    """{strategia: {configurazione: [run, ...]}} dalle metriche server."""
+    """{strategy: {configuration: [run, ...]}} from the server metrics."""
     metrics = metrics or palette.METRICS_SERVER
     by_strategy = defaultdict(lambda: defaultdict(list))
     for fp in sorted(Path(folder).glob("*.json")):
@@ -486,7 +482,7 @@ def load_tuning(folder, seeds, strategies, metrics=None, keep=None):
 
 
 def pretty_config(config):
-    """Etichetta LaTeX di una configurazione, es. eta0.2_etal0.15."""
+    """LaTeX label of a configuration, e.g. eta0.2_etal0.15."""
     labels = []
     for p in config.split("_"):
         if p.startswith("etal"):
@@ -499,15 +495,15 @@ def pretty_config(config):
 
 
 # =====================================================================
-# Pesi
+# Weights
 # =====================================================================
 
 def load_weights(path):
-    """Vettore piatto dei parametri salvati in un .npz."""
+    """Flat vector of the parameters saved in an .npz."""
     return np.concatenate([np.asarray(v).ravel()
                            for v in np.load(path).values()])
 
 
 def wrap(d):
-    """Differenza angolare avvolta in (-pi, pi], componente per componente."""
+    """Angular difference wrapped into (-pi, pi], component by component."""
     return np.arctan2(np.sin(d), np.cos(d))

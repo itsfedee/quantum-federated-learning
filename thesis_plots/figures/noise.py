@@ -1,9 +1,9 @@
-"""Capitolo 4.2: effetto del rumore su FedAvg.
+"""Chapter 4.2: effect of noise on FedAvg.
 
-  noise_levels    FedAvg a tre livelli di rumore statico
-  seed_isolation  una fonte di variabilita' per pannello
-  drift           noiseless vs rumore statico vs deriva (random walk e OU)
-  circle          mappa delle probabilita' predette, quattro regimi
+  noise_levels    FedAvg at three static noise levels
+  seed_isolation  one source of variability per panel
+  drift           noiseless vs static noise vs drift (random walk and OU)
+  circle          map of the predicted probabilities, four regimes
 """
 from pathlib import Path
 
@@ -14,12 +14,12 @@ from .. import style as ts
 
 BASE = paths.FEDAVG_IID
 
-# Le due varianti della figura sulla deriva differiscono solo per la sorgente
-# del braccio con deriva: random walk contro Ornstein-Uhlenbeck (theta = 0.3).
-# Il resto della configurazione e' lo stesso: p = 0.005, sigma = 0.001, 10
-# round, 7 seed.
+# The two variants of the drift figure differ only by the source of the
+# drifting arm: random walk against Ornstein-Uhlenbeck (theta = 0.3). The
+# rest of the configuration is the same: p = 0.005, sigma = 0.001, 10 rounds,
+# 7 seeds.
 DRIFT_SOURCES = [
-    (paths.NOISY_OU_10R, "", paths.FIG_NOISE),      # impaginata in 4.2
+    (paths.NOISY_OU_10R, "", paths.FIG_NOISE),      # in the 4.2 document
     (f"{paths.DRIFT_RW}/noisy_iid/fedavg", "_RW", paths.EXTRA),
 ]
 
@@ -32,7 +32,7 @@ SEED_SOURCES = [
 
 
 def noise_levels():
-    """FedAvg noiseless e a tre livelli di rumore statico, col centralizzato."""
+    """FedAvg noiseless and at three static noise levels, with the centralized run."""
     scenarios = [
         ("Centralized", loaders.read_centralized(paths.CENTRALIZED),
          palette.CENTRALIZED, "--", None, 0),
@@ -48,7 +48,7 @@ def noise_levels():
 
 
 def seed_isolation():
-    """Una fonte di variabilita' per pannello, banda MAD sui seed."""
+    """One source of variability per panel, MAD band over the seeds."""
     fig, axes = ts.grid(2, 2)
     for ax, (folder, title) in zip(axes.ravel(), SEED_SOURCES):
         data = loaders.read_federated(folder)
@@ -61,13 +61,13 @@ def seed_isolation():
         ax.set_xlabel(r"Round $t$")
         ax.set_ylabel("Loss")
         ax.tick_params(direction="in")
-        print(f"  {title}: MAD finale {dev[-1]:.5f}")
+        print(f"  {title}: final MAD {dev[-1]:.5f}")
     ts.save(fig, f"{paths.ensure(paths.FIG_NOISE)}/seed_isolation_median_mad")
 
 
 def drift():
-    """Noiseless vs rumore statico vs deriva, nelle due varianti di processo."""
-    # Le prime tre curve non dipendono dal tipo di deriva: si leggono una volta.
+    """Noiseless vs static noise vs drift, in the two process variants."""
+    # The first three curves do not depend on the drift type: read once.
     common = [
         ("Centralized", loaders.read_centralized(paths.CENTRALIZED),
          palette.CENTRALIZED, "--", None, 0),
@@ -85,7 +85,7 @@ def drift():
 
 
 # =====================================================================
-# Mappa delle probabilita' predette
+# Map of the predicted probabilities
 # =====================================================================
 
 CIRCLE_SEED = 7
@@ -93,7 +93,7 @@ CIRCLE_NSHOTS = 1000
 CIRCLE_POINTS = 1200
 CIRCLE_GRID_SEED = 11
 
-# (etichetta, cartella dei pesi, livello di rumore usato per la valutazione)
+# (label, weights folder, noise level used for the evaluation)
 CIRCLE_PANELS = [
     ("Noiseless", f"{BASE}/noiseless", None),
     (r"$p = 0.005$", paths.static_noise(BASE, "noisy", 0.005), 0.005),
@@ -103,15 +103,15 @@ CIRCLE_PANELS = [
 
 
 def circle():
-    """Probabilita' predette dal modello federato, seed 7, quattro regimi.
+    """Probabilities predicted by the federated model, seed 7, four regimes.
 
-    Per ciascun regime si caricano i pesi finali di quella run e si valuta il
-    modello attraverso il canale corrispondente, cosi' la figura mostra
-    insieme i due effetti del rumore: lo spostamento della soluzione appresa e
-    la compressione dei valori attesi verso 0.5.
+    For each regime the final weights of that run are loaded and the model
+    is evaluated through the corresponding channel, so the figure shows the
+    two effects of the noise together: the shift of the learned solution and
+    the compression of the expected values towards 0.5.
 
-    Richiede qibo: gli import stanno dentro la funzione perche' tutte le altre
-    figure si producono senza.
+    Needs qibo: the imports sit inside the function because every other
+    figure is produced without it.
     """
     import os
 
@@ -134,8 +134,8 @@ def circle():
     def predictions(weights_path, p):
         noise = None
         if p is not None:
-            # partition_id 0 e scale 0: il pannello mostra il livello nominale,
-            # non la dispersione fra client.
+            # partition_id 0 and scale 0: the panel shows the nominal level,
+            # not the spread between clients.
             noise, _ = build_noise_model(pauli_base=p, readout_base=p,
                                          partition_id=0, scale=0.0)
         set_seed(CIRCLE_SEED)
@@ -163,8 +163,8 @@ def circle():
         ax.set_xticks([-1, 0, 1])
         ax.set_yticks([-1, 0, 1])
         ax.set_aspect("equal")
-        print(f"  {label}: media {probs.mean():.3f}, "
-              f"escursione {probs.min():.3f}-{probs.max():.3f}", flush=True)
+        print(f"  {label}: mean {probs.mean():.3f}, "
+              f"range {probs.min():.3f}-{probs.max():.3f}", flush=True)
 
     cbar = fig.colorbar(sc, ax=axes, location="right", shrink=0.85, pad=0.02)
     cbar.set_label("Predicted probability")

@@ -1,13 +1,13 @@
-"""Capitolo 4.3.1: mitigazione CDR.
+"""Chapter 4.3.1: CDR mitigation.
 
-  fedavg          noiseless / noisy / mitigated, statico e con deriva
-  panels          le stesse curve lette dai valori client grezzi, con
-                  centralizzato e noiseless come riferimenti fissi
-  metrics_vs_p    metriche finali contro livello di rumore
-  loss_vs_p       loss finale contro p e guadagno di accuratezza per round
-  regression      pannelli di regressione della mappa CDR
-  static_threshold soglia 0.015 contro 0.03 sotto rumore statico
-  recovery        tabella a schermo: quanto della perdita recupera la CDR
+  fedavg          noiseless / noisy / mitigated, static and under drift
+  panels          the same curves read from the raw client values, with
+                  centralized and noiseless as fixed references
+  metrics_vs_p    final metrics against noise level
+  loss_vs_p       final loss against p and accuracy gain per round
+  regression      regression panels of the CDR map
+  static_threshold threshold 0.015 against 0.03 under static noise
+  recovery        on-screen table: how much of the loss the CDR recovers
 """
 from pathlib import Path
 
@@ -27,11 +27,11 @@ REGIME_STYLE = (("noisy", "Noisy", palette.NOISY, "s"),
 
 
 # =====================================================================
-# Curve nel tempo
+# Curves over time
 # =====================================================================
 
 def fedavg():
-    """FedAvg noiseless / noisy / mitigated: statico, deriva RW e deriva OU."""
+    """FedAvg noiseless / noisy / mitigated: static, RW drift and OU drift."""
     out = Path(paths.ensure(paths.FIG_MITIGATION_431))
     centr = loaders.read_centralized(paths.CENTRALIZED)
     noiseless = loaders.read_federated(f"{BASE}/noiseless")
@@ -47,8 +47,8 @@ def fedavg():
          palette.MITIGATED, "-", "^", 2),
     ], str(out / "04_fedavg_noiseless_noisy_mitigated_p005"))
 
-    # Con deriva il noiseless passa a riferimento tratteggiato: le curve che
-    # contano sono le due sotto deriva.
+    # Under drift the noiseless run becomes a dashed reference: the curves
+    # that matter are the two under drift.
     refs = [("Centralized", centr, palette.CENTRALIZED, "--", None, 0),
             ("Noiseless", noiseless, "C0", "--", None, 0)]
 
@@ -61,10 +61,11 @@ def fedavg():
          palette.MITIGATED, "-", "^", 2),
     ], f"{paths.ensure(paths.EXTRA)}/04_fedavg_noisy_vs_mitigated_drift_p005_RW")
 
-    # Stessa configurazione, ma con deriva di Ornstein-Uhlenbeck invece del
-    # random walk: il rumore torna verso il valore base con theta = 0.3 invece
-    # di allontanarsene. Il mitigato viene dallo sweep a 40 round, troncato ai
-    # primi 10 perche' e' l'unica run OU mitigata a questa soglia.
+    # Same configuration, but with Ornstein-Uhlenbeck drift instead of the
+    # random walk: the noise returns towards the base value with theta = 0.3
+    # instead of wandering away. The mitigated arm comes from the 40-round
+    # sweep, cut to the first 10 because it is the only mitigated OU run at
+    # this threshold.
     draw.scenario_panels(refs + [
         ("Noisy (drift)", loaders.read_federated(paths.NOISY_OU_10R),
          palette.NOISY, "-", "s", 1),
@@ -75,10 +76,10 @@ def fedavg():
 
 
 def panels():
-    """04_fedavg_mit e 04_fedavg_mit_drift, dai valori client grezzi.
+    """04_fedavg_mit and 04_fedavg_mit_drift, from the raw client values.
 
-    Sono il taglio alternativo delle curve di 4.3, quello per cliente: non
-    entrano nella tesi e stanno fra le figure esplorative.
+    They are the alternative cut of the 4.3 curves, the per-client one: they
+    do not enter the thesis and sit among the exploratory figures.
     """
     out = Path(paths.ensure(paths.EXTRA))
     centr = loaders.centralized_arms(paths.CENTRALIZED, SEEDS, n_epochs=10)
@@ -106,14 +107,15 @@ def panels():
 
 
 # =====================================================================
-# Metriche finali contro livello di rumore
+# Final metrics against noise level
 # =====================================================================
 
 def metrics_vs_p():
-    """Metriche finali di FedAvg contro p, noisy e mitigato.
+    """Final FedAvg metrics against p, noisy and mitigated.
 
-    Ogni punto e' la mediana sui sette seed del valore all'ultimo round, con
-    banda MAD; il noiseless e' una riga orizzontale, non dipendendo da p.
+    Every point is the median over the seven seeds of the value at the last
+    round, with a MAD band; the noiseless run is a horizontal line, as it
+    does not depend on p.
     """
     noiseless = loaders.final_metrics(f"{BASE}/noiseless")
     series = {regime: [loaders.final_metrics(paths.static_noise(BASE, regime, p))
@@ -143,8 +145,8 @@ def metrics_vs_p():
             ax.fill_between(NOISE_LEVELS, med - dev, med + dev, color=color,
                             alpha=0.15, lw=0)
 
-        # Asse in unita' di 1e-3: a due pollici di larghezza le etichette
-        # "0.003" e "0.007" si sovrappongono, quelle intere no.
+        # Axis in units of 1e-3: at two inches of width the labels "0.003"
+        # and "0.007" overlap, the integer ones do not.
         ax.set_xlabel(r"Noise level $p$ [$10^{-3}$]")
         ax.set_ylabel(info["ylabel"])
         ax.set_xticks([0.005, 0.010, 0.015, 0.020])
@@ -158,11 +160,11 @@ def metrics_vs_p():
 
 
 def loss_vs_p():
-    """Loss finale contro p, e guadagno di accuratezza round per round.
+    """Final loss against p, and accuracy gain round by round.
 
-    Pannello destro: differenza di accuratezza fra mitigato e noisy, appaiata
-    seed per seed prima di aggregare, cosi' la banda misura la dispersione del
-    guadagno e non quella delle due curve separate.
+    Right panel: accuracy difference between mitigated and noisy, paired seed
+    by seed before aggregating, so that the band measures the spread of the
+    gain and not that of the two separate curves.
     """
     fig, axes = ts.panels(2)
 
@@ -219,7 +221,7 @@ def loss_vs_p():
 
 
 # =====================================================================
-# Regressione della mappa CDR
+# Regression of the CDR map
 # =====================================================================
 
 REGRESSION_LEVELS = [0.005, 0.014, 0.035]
@@ -229,13 +231,13 @@ REGRESSION_SEED = 1
 def cdr_training_points(p, seed, scale=0.002, client_id=0,
                         n_training_samples=120, nshots_cdr=30000, cdr_seed=40,
                         nshots_model=1000, x_input=None):
-    """Punti di training della mappa CDR e coefficienti del fit.
+    """Training points of the CDR map and coefficients of the fit.
 
-    Costruisce il modello con il canale di rumore a livello p, lo valuta una
-    volta su un punto qualsiasi per far costruire la mappa al mitigatore, e
-    ne restituisce i punti di training insieme alla retta che li interpola.
-    Richiede qibo: l'import sta qui dentro perche' tutte le altre figure di
-    questo modulo si producono senza.
+    Builds the model with the noise channel at level p, evaluates it once on
+    an arbitrary point to make the mitigator build the map, and returns its
+    training points together with the line that interpolates them. Needs
+    qibo: the import sits in here because every other figure of this module
+    is produced without it.
     """
     import torch
 
@@ -271,9 +273,9 @@ def cdr_training_points(p, seed, scale=0.002, client_id=0,
 
 
 def regression():
-    """Punti di training della CDR, noisy contro noise-free, e retta di fit.
+    """CDR training points, noisy against noise-free, and fit line.
 
-    Tre pannelli, uno per livello di rumore. Richiede qibo.
+    Three panels, one per noise level. Needs qibo.
     """
     fig, axes = ts.panels(3)
     for ax, p in zip(axes, REGRESSION_LEVELS):
@@ -283,8 +285,7 @@ def regression():
         x_fit = np.linspace(noisy.min(), noisy.max(), 100)
         ax.plot(x_fit, a * x_fit + b, color="red", linewidth=1.0)
 
-        # R^2 del fit effettivamente applicato, non di una regressione
-        # ricalcolata.
+        # R^2 of the fit actually applied, not of a recomputed regression.
         pred = a * noisy + b
         ss_res = float(((noisefree - pred) ** 2).sum())
         ss_tot = float(((noisefree - noisefree.mean()) ** 2).sum())
@@ -297,11 +298,11 @@ def regression():
 
         ax.set_title(rf"$p = {p}$")
         ax.grid(False)
-        # Etichette piu' piccole del testo di base: a due pollici di pannello
-        # quella verticale, lunga, occuperebbe l'intera altezza.
+        # Labels smaller than the base text: at two inches of panel the
+        # vertical one, being long, would take up the whole height.
         ax.set_xlabel("Noisy exp. value", fontsize=7.5)
         ax.set_ylabel("Noiseless exp. value", fontsize=7.5)
-        print(f"  p={p}: a={a:.3f} b={b:.3f} R2={r2:.4f} ({len(noisy)} punti)",
+        print(f"  p={p}: a={a:.3f} b={b:.3f} R2={r2:.4f} ({len(noisy)} points)",
               flush=True)
 
     ts.save(fig, f"{paths.ensure(paths.FIG_MITIGATION)}"
@@ -309,7 +310,7 @@ def regression():
 
 
 # =====================================================================
-# Soglia CDR sotto rumore statico
+# CDR threshold under static noise
 # =====================================================================
 
 STATIC_ARMS = [
@@ -319,10 +320,11 @@ STATIC_ARMS = [
 
 
 def static_threshold():
-    """Loss client di FedAvg mitigato statico, soglia 0.015 contro 0.03.
+    """Client loss of static mitigated FedAvg, threshold 0.015 against 0.03.
 
-    Stessa configurazione nei due bracci (p = 0.005, sigma = 0, no_memory, 10
-    round, 7 seed, stessi init_seed e data_seed): cambia solo la soglia CDR.
+    Same configuration in both arms (p = 0.005, sigma = 0, no_memory, 10
+    rounds, 7 seeds, same init_seed and data_seed): only the CDR threshold
+    changes.
     """
     fig, ax = ts.single()
     rounds = None
@@ -335,7 +337,7 @@ def static_threshold():
                 label=rf"$\epsilon_{{\mathrm{{th}}}} = {thr}$")
         ax.fill_between(rounds, med - dev, med + dev, color=color, alpha=0.15,
                         lw=0)
-        print(f"  eps={thr}: loss finale {med[-1]:.4f} (MAD {dev[-1]:.4f})")
+        print(f"  eps={thr}: final loss {med[-1]:.4f} (MAD {dev[-1]:.4f})")
 
     ax.set_xlabel(r"Round $t$")
     ax.set_ylabel("Client evaluation loss")
@@ -347,11 +349,11 @@ def static_threshold():
 
 
 # =====================================================================
-# Tabella a schermo
+# On-screen table
 # =====================================================================
 
 def recovery():
-    """Quanto della perdita dovuta al rumore recupera la mitigazione."""
+    """How much of the loss due to noise the mitigation recovers."""
     def fmt(arr):
         return f"{np.median(arr):.4f} +/- {median_abs_deviation(arr):.4f}"
 

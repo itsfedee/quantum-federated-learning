@@ -14,7 +14,7 @@ Code only — the run outputs and the thesis figures stay local.
 a MAD band. Mitigation closes the loss gap almost entirely, and leaves accuracy
 where it already was.*
 
-## What I found
+## Results
 
 **Adaptive server optimizers cost rounds and buy nothing here.** All five
 strategies land on the same plateau — loss ≈ 0.307, accuracy ≈ 95%, both IID and
@@ -55,14 +55,31 @@ each.
 
 ## Install
 
+With [uv](https://docs.astral.sh/uv/), from the repository root:
+
 ```bash
-pip install -e .
+uv sync
 ```
 
-Developed on Python 3.11 and 3.12. The dependencies are pinned in
-`pyproject.toml`: `qibo` and `qiboml[torch]` for the circuit and its gradients,
-`flwr[simulation]` and `flwr-datasets` for the federation, plus `scikit-learn`.
-A CPU-only PyTorch is enough — the simulated circuits are 2 qubits wide.
+This creates `.venv` with the exact versions recorded in `uv.lock`, the ones
+the thesis results were produced with, and installs the project into it in
+editable mode. Run anything through it with `uv run`, for example
+`uv run flwr run .` or `uv run python -m thesis_plots --list`, or activate
+`.venv` as usual.
+
+Without uv, the same versions are listed in `requirements-lock.txt`:
+
+```bash
+python -m venv .venv
+.venv/Scripts/pip install -r requirements-lock.txt
+.venv/Scripts/pip install -e . --no-deps
+```
+
+Developed on Python 3.11 and 3.12 (`requires-python` stops before 3.14, where
+the pinned numpy is no longer available). The main dependencies are `qibo` and
+`qiboml[torch]` for the circuit and its gradients, `flwr[simulation]` and
+`flwr-datasets` for the federation, plus `scikit-learn`. A CPU-only PyTorch is
+enough — the simulated circuits are 2 qubits wide.
 
 ## Experiments
 
@@ -77,6 +94,14 @@ Defaults for the Flower app live in `pyproject.toml`, under
 simulator switches to density matrices and starts sampling, which costs about
 100 seconds per round against 3 for the noiseless case.
 
+The circuit and the dataset are chosen by name, `circuit="2q"` and
+`dataset="circle"` in the run config, and looked up in two registries in
+`qibo_qfl_pt/task.py`: `CIRCUITS` (qubits, layers, encoder, observable) and
+`DATASETS` (number of features and a `load(split, n, seed)` function). Each
+holds one entry today; a new model or dataset is one more entry, and
+`check_shapes` fails early when the dataset's features and the encoder's
+disagree.
+
 ## Figures and tables
 
 Every figure goes through the same runner, launched from the repository root (or
@@ -90,6 +115,25 @@ python -m thesis_plots noise             # a whole group
 python -m thesis_plots noise.circle      # a single figure
 python -m thesis_plots all --with-qibo   # including the ones that re-evaluate the model
 ```
+
+By default the data are read from `results/` and the figures written to
+`thesis_images/`, both inside the repository. `--results DIR` and `--out DIR`
+move those roots, for data kept elsewhere or for a trial regeneration that
+must not overwrite the delivered figures:
+
+```bash
+python -m thesis_plots noise --results D:/qfl_data --out D:/qfl_figures
+```
+
+For a quick look at a result that has no registered figure, `compare` takes
+the run folders from the command line, aggregates them (median and MAD over
+the seeds) and draws the usual three panels into `thesis_images/extra/`:
+
+```bash
+python -m thesis_plots.compare name FedAvg=results/.../fedavg FedProx=results/.../fedprox --ref Centralized=results/.../centralized
+```
+
+The full command-to-file table is in `thesis_plots/README.md`.
 
 The groups follow the chapters:
 
@@ -116,7 +160,6 @@ need the full run environment and take minutes rather than seconds.
 | `thesis_plots/`    | figures and tables for the thesis                            |
 | `notebooks/`       | `example.ipynb`, a toy run — start here                      |
 | `figures/`         | the few figures shown in this README                         |
-| `tools/`           | housekeeping utilities (run checks, result download)         |
 
 ## Development
 
@@ -133,4 +176,5 @@ data paths), `palette.py` (colours and markers), `loaders.py` (reading the run
 JSONs) and `draw.py` (the recurring figure shapes). A change of form that should
 apply to every figure is made once, there.
 
-Code comments are in Italian.
+Code comments and docstrings are in English; `thesis_plots/README.md` is in
+Italian.

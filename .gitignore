@@ -1,17 +1,25 @@
 /*
 
+# pyproject.toml is NOT re-included here on purpose. Git already tracks it,
+# and .gitignore does not touch tracked files. A '!/pyproject.toml' line would
+# instead undo the exclusion that flwr applies to the same file when it builds
+# the FAB: the file would end up in the bundle twice and break its hash check
+# ("Duplicate name: 'pyproject.toml'", "File hashes couldn't be verified").
+# In a fresh clone made from scratch, add it once with: git add -f pyproject.toml
+
 !/.gitignore
 !/README.md
 
 !/*.py
 !/*.ps1
+!/requirements-lock.txt
+!/uv.lock
 
 !/figures/
 !/notebooks/
 !/qibo_qfl_pt/
 !/run_experiments/
 !/thesis_plots/
-!/tools/
 
 
 __pycache__/

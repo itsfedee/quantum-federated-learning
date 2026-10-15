@@ -1,11 +1,11 @@
-"""Tuning degli iperparametri: una figura per strategia, la griglia 2x2 e FedAvg.
+"""Hyperparameter tuning: one figure per strategy, the 2x2 grid and FedAvg.
 
-Erano quattro script quasi identici, uno per campagna e uno per taglio della
-figura. Qui la campagna e' un profilo e il taglio una funzione.
+These were four nearly identical scripts, one per campaign and one per cut
+of the figure. Here the campaign is a profile and the cut a function.
 
-Nota: le figure della campagna vecchia (tuning_non_iid/, senza NEW_) escono ora
-nello stile della tesi come tutte le altre, invece che nel formato 14x3.5 con
-cui erano state prodotte la prima volta.
+Note: the figures of the old campaign (tuning_non_iid/, without NEW_) now
+come out in the thesis style like all the others, instead of the 14x3.5
+format they were first produced in.
 """
 import json
 from collections import defaultdict
@@ -21,8 +21,8 @@ SEEDS = [1001, 1002, 1003]
 METRICS = palette.METRICS_SERVER
 STRATEGIES = list(palette.STRATEGY_NAMES)
 
-# La configurazione scelta dal tuning, evidenziata con linea piu' spessa.
-# Cambia fra IID e non-IID solo per FedAdam.
+# The configuration chosen by the tuning, highlighted with a thicker line.
+# It changes between IID and non-IID only for FedAdam.
 SELECTED = {
     "fedavg": "etal0.3",
     "fedprox": "mu0.03_etal0.3",
@@ -45,7 +45,7 @@ PROFILES = {
         "fedavg_out": "06_tuning_non_iid_fedavg",
         "fedadam": "eta0.1_etal0.1",
     },
-    # Campagna precedente, tenuta per confronto.
+    # Previous campaign, kept for comparison.
     "non_iid_old": {
         "dir": paths.TUNING_NON_IID_OLD,
         "prefix": "tuning_non_iid",
@@ -53,8 +53,8 @@ PROFILES = {
     },
 }
 
-# Griglia comune del tuning: dieci combinazioni (primo parametro, eta_l), le
-# stesse per tutte le strategie, nell'ordine del sort alfabetico delle config.
+# Common tuning grid: ten (first parameter, eta_l) combinations, the same for
+# every strategy, in the alphabetical sort order of the configs.
 CONFIG_GRID = [
     (0.001, 0.01), (0.01, 0.15), (0.03, 0.3), (0.05, 0.1), (0.1, 0.01),
     (0.1, 0.1), (0.1, 0.3), (0.2, 0.05), (0.2, 0.15), (0.3, 0.2),
@@ -71,18 +71,18 @@ def _out_dir(profile):
 
 
 def _matrix(runs, metric):
-    """Matrice (seed, round) di una metrica, sui round comuni ai seed."""
+    """(seed, round) matrix of a metric, on the rounds common to the seeds."""
     min_len = min(len(r[metric]) for r in runs)
     return np.array([r[metric][:min_len] for r in runs])
 
 
 def _style(is_selected):
-    """Spessore, opacita' della banda e ordine di disegno della curva."""
+    """Line width, band opacity and drawing order of the curve."""
     return ((2.5, 0.25, 10) if is_selected else (1.0, 0.10, 1))
 
 
 def per_strategy(profile="iid"):
-    """Una figura a tre pannelli per strategia, una curva per configurazione."""
+    """A three-panel figure per strategy, one curve per configuration."""
     cfg = PROFILES[profile]
     out = _out_dir(profile)
     selected = _selected(profile)
@@ -90,8 +90,8 @@ def per_strategy(profile="iid"):
 
     pdf_dir = None
     if cfg.get("pdf_name"):
-        # I PDF per la tesi vanno nella cartella di 4.1, col nome del
-        # documento; nella cartella della campagna resta la coppia di lavoro.
+        # The PDFs for the thesis go to the 4.1 folder, with the document's
+        # name; the working pair stays in the campaign folder.
         pdf_dir = Path(paths.ensure(paths.FINAL_041))
 
     for strat, configs in data.items():
@@ -130,9 +130,9 @@ def per_strategy(profile="iid"):
 
 
 def grid(profile="non_iid"):
-    """Pannello 2x2 della loss, quattro strategie, legenda unica condivisa."""
+    """2x2 panel of the loss, four strategies, single shared legend."""
     cfg = PROFILES[profile]
-    # Le griglie e lo sweep di FedAvg sono figure dell'appendice.
+    # The grids and the FedAvg sweep are appendix figures.
     out = Path(paths.ensure(paths.FINAL_06))
     selected = _selected(profile)
     data = loaders.load_tuning(cfg["dir"], SEEDS, STRATEGIES,
@@ -152,8 +152,8 @@ def grid(profile="non_iid"):
             line, = ax.plot(rounds, med, color=cmap[i], lw=lw, zorder=zorder)
             ax.fill_between(rounds, med - dev, med + dev, alpha=alpha,
                             color=cmap[i], zorder=zorder)
-            # Le maniglie della legenda si prendono dalla prima strategia: la
-            # griglia di configurazioni e' la stessa per tutte e quattro.
+            # The legend handles are taken from the first strategy: the grid
+            # of configurations is the same for all four.
             if ax_idx == 0:
                 v1, v2 = CONFIG_GRID[i]
                 handles.append(line)
@@ -169,7 +169,7 @@ def grid(profile="non_iid"):
 
 
 def fedavg(profile="non_iid"):
-    """FedAvg: un solo pannello, sweep di eta_l."""
+    """FedAvg: a single panel, eta_l sweep."""
     cfg = PROFILES[profile]
     out = Path(paths.ensure(paths.FINAL_06))
     selected = _selected(profile)["fedavg"]
@@ -189,7 +189,7 @@ def fedavg(profile="non_iid"):
 
     for i, (config, runs) in enumerate(sorted(configs.items())):
         lw, alpha, zorder = _style(config == selected)
-        label = f"$\\eta_l={config[4:]}$"      # config e' sempre etal<valore>
+        label = f"$\\eta_l={config[4:]}$"      # config is always etal<value>
         if config == selected:
             label += "  (selected)"
         min_len = min(len(r) for r in runs)
@@ -205,15 +205,15 @@ def fedavg(profile="non_iid"):
     ax.set_ylim(bottom=0.28)
     ax.legend(frameon=False, fontsize=7, ncol=5, loc="lower center",
               bbox_to_anchor=(0.5, 1.02))
-    # La legenda e' ancorata a mano, fuori dal layout constrained: senza questi
-    # due aggiustamenti finisce sopra il bordo superiore della figura.
+    # The legend is anchored by hand, outside the constrained layout: without
+    # these two adjustments it ends up above the top edge of the figure.
     fig.tight_layout()
     fig.subplots_adjust(top=0.82)
     ts.save(fig, str(out / cfg["fedavg_out"]))
 
 
 def all_tuning():
-    """Tutte le figure di tuning, nelle tre campagne."""
+    """Every tuning figure, in the three campaigns."""
     per_strategy("iid")
     per_strategy("non_iid_old")
     grid("iid")

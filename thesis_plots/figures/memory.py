@@ -1,15 +1,15 @@
-"""Sweep sulla soglia CDR e memoria della mappa.
+"""CDR threshold sweep and memory of the map.
 
-Lo sweep esiste in due campagne, che differiscono per il processo che muove il
-rumore: Ornstein-Uhlenbeck a 40 round e random walk a 10. Cambiano le soglie
-disponibili, la terza variante di memoria (ema_full contro warm_start), la
-finestra di coda per le statistiche di plateau e la spaziatura dei marcatori.
-Tutto il resto e' identico, quindi il regime e' un parametro e non una copia
-dello script.
+The sweep exists in two campaigns, which differ by the process that moves
+the noise: Ornstein-Uhlenbeck at 40 rounds and random walk at 10. What
+changes are the available thresholds, the third memory variant (ema_full
+against warm_start), the tail window for the plateau statistics and the
+marker spacing. Everything else is identical, so the regime is a parameter
+and not a copy of the script.
 
-Le figure dello sweep OU finiscono in thesis_images/4_3_FINAL/ e le sue
-tabelle in thesis_images/tables/; la campagna random walk, che resta fuori
-dalla tesi, tiene entrambe in NEW_THESIS_IMAGES_RW/.
+The figures of the OU sweep go to thesis_images/4_3_FINAL/ and its tables to
+thesis_images/tables/; the random walk campaign, which stays out of the
+thesis, keeps both in NEW_THESIS_IMAGES_RW/.
 """
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,7 +26,7 @@ NOISE_LEVELS = [0.003, 0.006, 0.01, 0.014, 0.018, 0.022]
 
 @dataclass
 class Regime:
-    """Profilo di una campagna di sweep."""
+    """Profile of a sweep campaign."""
     name: str
     sweep: str
     thresholds: list
@@ -34,14 +34,14 @@ class Regime:
     variants: list
     labels: dict
     quality_thresholds: tuple
-    tail: int           # round di coda su cui si leggono qualita' e stabilita'
+    tail: int           # tail rounds on which quality and stability are read
     mark_every: int
-    duration: int       # round della campagna, per i tassi in tabella
-    out: str            # cartella delle figure impaginate
-    extra: str = None   # cartella dei tagli diagnostici; None: la stessa
-    tables: str = None  # cartella dei .tex/.csv; None: la stessa delle figure
-    seeds: list = None  # None: nessun filtro, le cartelle hanno gia' 7 seed
-    centralized: bool = False   # esiste il blocco centralizzato in tabella
+    duration: int       # rounds of the campaign, for the rates in the table
+    out: str            # folder of the figures in the document
+    extra: str = None   # folder of the diagnostic cuts; None: the same
+    tables: str = None  # folder of the .tex/.csv; None: the same as the figures
+    seeds: list = None  # None: no filter, the folders already hold 7 seeds
+    centralized: bool = False   # the centralized block exists in the table
 
 
 REGIMES = {
@@ -67,7 +67,7 @@ REGIMES = {
     "RW": Regime(
         name="RW",
         sweep=paths.SWEEP_RW,
-        # 0.0 e' esclusa: soglia nulla significa ricalibrare a ogni check.
+        # 0.0 is excluded: a zero threshold means recalibrating at every check.
         thresholds=[0.005, 0.015, 0.03, 0.05, 0.2],
         thresh_dir={0.005: "thresh_0005", 0.015: "thresh_0015",
                     0.03: "thresh_003", 0.05: "thresh_005",
@@ -76,7 +76,7 @@ REGIMES = {
         labels={"no_memory": "No memory", "ema": "EMA inter-round",
                 "warm_start": "Warm start"},
         quality_thresholds=(0.015, 0.03, 0.05, 0.2),
-        tail=5,             # su 10 round la coda non puo' essere di 10
+        tail=5,             # over 10 rounds the tail cannot be 10
         mark_every=2,
         duration=10,
         out=paths.MEMORY_OUT_RW,
@@ -86,13 +86,13 @@ REGIMES = {
     ),
 }
 
-# Sweep di soglia centralizzato con memoria, sotto la stessa deriva OU del
-# federato (sigma = 0.001, theta = 0.3, beta = 0.2) ma su 30 epoche invece di
-# 40 round: e' una campagna precedente. Le soglie 0.03 e 0.05 compaiono anche
-# in memory_centralized_ou_sweep con gli stessi identici sette seed, e 0.015 e'
-# duplicata in memory_centralized/{ema,no_memory} senza sottocartella: qui si
-# legge una sola copia di ciascuna, e dall'ou_sweep solo 0.08 e 0.12, che
-# stanno unicamente li'.
+# Centralized threshold sweep with memory, under the same OU drift as the
+# federated one (sigma = 0.001, theta = 0.3, beta = 0.2) but over 30 epochs
+# instead of 40 rounds: it is an earlier campaign. Thresholds 0.03 and 0.05
+# also appear in memory_centralized_ou_sweep with exactly the same seven
+# seeds, and 0.015 is duplicated in memory_centralized/{ema,no_memory}
+# without a subfolder: here a single copy of each is read, and from the
+# ou_sweep only 0.08 and 0.12, which live only there.
 CEN_MEMORY_DIR = {
     0.005: f"{paths.CEN_MEMORY}/thresh_0005",
     0.015: f"{paths.CEN_MEMORY}/thresh_0015",
@@ -106,7 +106,7 @@ CEN_DURATION = 30
 
 
 def sweep_files(reg, threshold, variant):
-    """JSON dello sweep per (soglia, variante), filtrati sui seed del profilo."""
+    """Sweep JSONs for (threshold, variant), filtered on the profile's seeds."""
     files = loaders.run_files(f"{reg.sweep}/{reg.thresh_dir[threshold]}/{variant}")
     if reg.seeds is None:
         return files
@@ -114,8 +114,8 @@ def sweep_files(reg, threshold, variant):
     return [f for f in files if loaders.seed_of(f) in keep]
 
 
-# I tre tagli dello sweep che entrano in 4.3: tutto il resto che questo
-# modulo produce e' diagnostico e finisce fra le figure esplorative.
+# The three cuts of the sweep that enter 4.3: everything else this module
+# produces is diagnostic and goes among the exploratory figures.
 IN_THESIS = {
     "04_threshold_sweep",
     "04_calibration_savings_vs_round",
@@ -129,19 +129,20 @@ def _out(reg, name):
 
 
 # =====================================================================
-# Costo: ricalibrazioni contro soglia e contro round
+# Cost: recalibrations against threshold and against round
 # =====================================================================
 
 def threshold_sweep(reg, logscale=True):
-    """Ricalibrazioni totali contro soglia, una curva per variante di memoria.
+    """Total recalibrations against threshold, one curve per memory variant.
 
-    Asse x categorico: le soglie sono equispaziate a prescindere dal valore,
-    come nelle figure gia' in tesi. Su asse numerico le prime tre si
-    accavallerebbero, e il logaritmo renderebbe la spaziatura poco leggibile.
-    L'asse y e' logaritmico: i conteggi coprono due ordini di grandezza e su
-    scala lineare le soglie larghe si schiacciano sullo zero, dove sta invece
-    la differenza fra le varianti di memoria. La banda MAD viene tagliata a
-    0.5 per non far scendere il bordo inferiore a valori non rappresentabili.
+    Categorical x axis: the thresholds are equally spaced regardless of their
+    value, as in the figures already in the thesis. On a numeric axis the
+    first three would pile up, and a logarithm would make the spacing hard
+    to read. The y axis is logarithmic: the counts span two orders of
+    magnitude and on a linear scale the loose thresholds get squashed onto
+    zero, which is where the difference between the memory variants lies.
+    The MAD band is clipped at 0.5 so that the lower edge does not drop to
+    values that cannot be represented.
     """
     fig, ax = ts.single()
     x = np.arange(len(reg.thresholds))
@@ -165,14 +166,14 @@ def threshold_sweep(reg, logscale=True):
 
 
 def threshold_sweep_inset(reg, zoom_from=0.05):
-    """Stessa figura su asse y lineare, con un inset sulle soglie larghe.
+    """Same figure on a linear y axis, with an inset on the loose thresholds.
 
-    E' questa la versione impaginata in 4.3 (verificato sul PDF consegnato):
-    l'asse principale resta lineare e la parte informativa (soglie >= 0.05, dove la
-    memoria dimezza le calibrazioni) si legge nel riquadro. Il limite
-    superiore dell'inset segue la banda MAD piu' alta della regione, non un
-    valore fisso: a 0.05 no_memory arriva a 227 nel regime OU e un ylim da 200
-    la taglierebbe.
+    This is the version in the 4.3 document (checked against the delivered
+    PDF): the main axis stays linear and the informative part (thresholds >=
+    0.05, where the memory halves the calibrations) is read in the box. The
+    upper limit of the inset follows the highest MAD band of the region, not
+    a fixed value: at 0.05 no_memory reaches 227 in the OU regime and a ylim
+    of 200 would cut it.
     """
     fig, ax = ts.single()
     x = np.arange(len(reg.thresholds))
@@ -209,7 +210,7 @@ def threshold_sweep_inset(reg, zoom_from=0.05):
 
 
 def cumulative(reg):
-    """Ricalibrazioni cumulate contro round, una curva per soglia (EMA)."""
+    """Cumulative recalibrations against round, one curve per threshold (EMA)."""
     fig, ax = ts.single()
     colors = plt.cm.viridis(np.linspace(0, .88, len(reg.thresholds)))
     for i, (t, c) in enumerate(zip(reg.thresholds, colors)):
@@ -232,12 +233,13 @@ def cumulative(reg):
 
 
 def savings(reg):
-    """Calibrazioni risparmiate dalla memoria, cumulate, per soglia.
+    """Calibrations saved by the memory, cumulative, per threshold.
 
-    Si plotta la differenza no_memory - EMA appaiata per seed, non i due
-    totali: essendo una differenza sta nello stesso intervallo per tutte le
-    soglie, mentre i totali coprono tre ordini di grandezza e schiacciano le
-    soglie larghe. L'asse y e' cosi' direttamente il beneficio della memoria.
+    The difference no_memory - EMA paired by seed is plotted, not the two
+    totals: being a difference it lies in the same range for every
+    threshold, while the totals span three orders of magnitude and squash
+    the loose thresholds. The y axis is thus directly the benefit of the
+    memory.
     """
     fig, ax = ts.single()
     for i, t in enumerate(reg.thresholds):
@@ -247,7 +249,7 @@ def savings(reg):
             continue
         n = min(A.shape[0], B.shape[0])
         m = min(A.shape[1], B.shape[1])
-        D = A[:n, :m] - B[:n, :m]          # appaiata seed per seed
+        D = A[:n, :m] - B[:n, :m]          # paired seed by seed
         med = np.median(D, axis=0)
         dev = np.array([loaders.mad(D[:, j]) for j in range(m)])
         c = f"C{i}"
@@ -265,14 +267,14 @@ def savings(reg):
 
 
 # =====================================================================
-# Qualita': metriche client contro round, una curva per soglia
+# Quality: client metrics against round, one curve per threshold
 # =====================================================================
 
 def quality_panels(reg, variant="ema"):
-    """Loss, accuracy e F1 lato client contro il round, una curva per soglia.
+    """Client-side loss, accuracy and F1 against the round, one curve per threshold.
 
-    Tre pannelli affiancati, stessa scala dei round ma ordinate indipendenti:
-    loss e metriche di classificazione vivono su intervalli diversi.
+    Three panels side by side, same round scale but independent ordinates:
+    loss and classification metrics live on different ranges.
     """
     keys = [("loss", "Client evaluation loss"),
             ("accuracy", "Client accuracy"),
@@ -295,12 +297,13 @@ def quality_panels(reg, variant="ema"):
         ax.set_xlabel("Communication round $t$", fontsize=8.5)
         ax.set_xlim(1, 40)
         ax.set_xticks([1, 10, 20, 30, 40])
-        # Pochi tick ed etichette piccole: in un pannello largo poco piu' di
-        # due pollici la spaziatura di default sbava su quello accanto.
+        # Few ticks and small labels: in a panel barely wider than two inches
+        # the default spacing bleeds into the next one.
         ax.yaxis.set_major_locator(plt.MaxNLocator(5))
         ax.tick_params(labelsize=8)
-    # Legenda unica sopra i pannelli: dentro un pannello stretto quattro voci
-    # coprirebbero le curve, e ripeterla tre volte sarebbe ridondante.
+    # Single legend above the panels: inside a narrow panel four entries
+    # would cover the curves, and repeating it three times would be
+    # redundant.
     fig.legend(handles=axes[0].get_lines(), frameon=False, fontsize=8.5,
                ncol=4, loc="outside upper center", columnspacing=1.6,
                handlelength=1.8)
@@ -308,15 +311,15 @@ def quality_panels(reg, variant="ema"):
 
 
 def quality_stats(reg, threshold, variant):
-    """Costo, qualita' e stabilita' di un punto dello sweep, un valore per seed.
+    """Cost, quality and stability of one sweep point, one value per seed.
 
-    Le due misure di stabilita' non sono ridondanti: sigma e' la dispersione
-    tipica attorno al plateau, spike la coda, cioe' la peggiore regressione
-    osservata nella finestra rispetto alla migliore loss raggiunta fino a quel
-    round dall'inizio della run - quanto costa il singolo episodio in cui la
-    mappa CDR resta stantia troppo a lungo. Il minimo corrente si accumula su
-    tutta la traiettoria, ma il massimo si legge solo nella finestra, come
-    tutto il resto della tabella.
+    The two stability measures are not redundant: sigma is the typical
+    spread around the plateau, spike the tail, that is the worst regression
+    observed in the window with respect to the best loss reached up to that
+    round since the start of the run - how much the single episode in which
+    the CDR map stays stale for too long costs. The running minimum
+    accumulates over the whole trajectory, but the maximum is read only in
+    the window, like everything else in the table.
     """
     files = sweep_files(reg, threshold, variant)
     _, L = loaders.client_curves(files, "loss")
@@ -335,11 +338,10 @@ def quality_stats(reg, threshold, variant):
 
 
 # =====================================================================
-# Distanza nei pesi e deriva del rumore (solo OU)
+# Weight distance and noise drift (OU only)
 # =====================================================================
 
-# Serie della figura sulle distanze: pipeline, regime, etichetta, colore,
-# marcatore.
+# Series of the distance figure: pipeline, regime, label, colour, marker.
 WEIGHT_SERIES = [
     ("fed", "noisy", "Federated noisy", "C0", "o"),
     ("fed", "mitigated", "Federated mitigated", "C1", "s"),
@@ -349,7 +351,7 @@ WEIGHT_SERIES = [
 
 
 def parameter_paths(kind, regime, p, seed):
-    """Pesi di riferimento (noiseless) e della run, per una configurazione."""
+    """Reference (noiseless) and run weights, for one configuration."""
     if kind == "fed":
         return (f"{paths.FEDAVG_IID}/noiseless/weights/"
                 f"FedAvg_etal0.3_seed{seed}.npz",
@@ -361,7 +363,7 @@ def parameter_paths(kind, regime, p, seed):
 
 
 def weight_distances(kind, regime, p):
-    """Distanze dalla soluzione noiseless, un valore per seed disponibile."""
+    """Distances from the noiseless solution, one value per available seed."""
     import os
     out = []
     for seed in SEEDS:
@@ -374,12 +376,13 @@ def weight_distances(kind, regime, p):
 
 
 def weight_distance(reg=None):
-    """Distanza dei pesi dalla soluzione noiseless, quattro pipeline.
+    """Weight distance from the noiseless solution, four pipelines.
 
-    Stessa quantita' della prima colonna di tab_parameters: differenza per
-    parametro avvolta sul toro e aggregata in norma euclidea, mediana sui sette
-    seed con banda MAD. Asse x categorico perche' i livelli di rumore non sono
-    equispaziati (0.003 dista 0.003 dal successivo, gli altri 0.004).
+    Same quantity as the first column of tab_parameters: per-parameter
+    difference wrapped on the torus and aggregated in Euclidean norm, median
+    over the seven seeds with a MAD band. Categorical x axis because the
+    noise levels are not equally spaced (0.003 is 0.003 away from the next,
+    the others 0.004).
     """
     reg = reg or REGIMES["OU"]
     fig, ax = ts.single()
@@ -400,18 +403,18 @@ def weight_distance(reg=None):
     ax.set_ylabel(r"Weight distance $\|\boldsymbol{\theta} - "
                   r"\boldsymbol{\theta}_{\mathrm{noiseless}}\|$")
     ax.set_ylim(bottom=0)
-    # Legenda interna: le curve salgono da sinistra a destra e l'angolo in alto
-    # a sinistra resta libero anche con la banda piu' larga.
+    # Inner legend: the curves rise from left to right and the top-left
+    # corner stays free even with the widest band.
     ax.legend(frameon=False, fontsize=8.5, loc="upper left")
     ts.save(fig, _out(reg, "04_weight_distance"))
 
 
-# Parametri della campagna federata OU, letti dall'info delle run.
+# Parameters of the federated OU campaign, read from the run info.
 DRIFT = dict(base=0.005, scale=0.002, sigma=0.001, theta=0.3)
 
 
 def noise_drift(reg=None, seed=1, n_rounds=10, n_clients=5):
-    """Deriva OU del rumore, una curva per client, Pauli e readout affiancati."""
+    """OU drift of the noise, one curve per client, Pauli and readout side by side."""
     reg = reg or REGIMES["OU"]
     pauli, readout = noise_model.trajectories(
         noise_model.WALK_SEED_MAP[seed], n_rounds=n_rounds,
@@ -425,9 +428,9 @@ def noise_drift(reg=None, seed=1, n_rounds=10, n_clients=5):
             ax.plot(rounds, data[pid], color=f"C{pid}", lw=1.3,
                     marker=palette.LINE_MARKERS[pid % len(palette.LINE_MARKERS)],
                     ms=3.5, label=f"Client {pid}")
-        # Il valore base e' il centro verso cui il processo OU richiama la
-        # deriva, non il punto di partenza dei client: la dispersione statica
-        # li sparpaglia gia' al round 0.
+        # The base value is the centre the OU process pulls the drift
+        # towards, not the clients' starting point: the static spread already
+        # scatters them at round 0.
         ax.axhline(DRIFT["base"], color="0.6", lw=0.8, ls="--", zorder=0)
         ax.set_xlabel("Communication round $t$")
         ax.set_ylabel(label, fontsize=8.5)
@@ -440,7 +443,7 @@ def noise_drift(reg=None, seed=1, n_rounds=10, n_clients=5):
 
 
 # =====================================================================
-# Strategie sotto deriva OU, una figura per strategia
+# Strategies under OU drift, one figure per strategy
 # =====================================================================
 
 REGIME_ARMS = (("noiseless", "Noiseless", "tab:blue", "s"),
@@ -449,10 +452,11 @@ REGIME_ARMS = (("noiseless", "Noiseless", "tab:blue", "s"),
 
 
 def strategy_sources(reg, strat, regime):
-    """Cartella dei JSON per (strategia, regime) sotto deriva OU.
+    """JSON folder for (strategy, regime) under OU drift.
 
-    Tutte le strategie hanno la stessa forma. Del braccio mitigato di FedAvg si
-    usano i primi 10 round: e' la soglia 0.015 dello sweep, che gira per 40.
+    Every strategy has the same shape. Of the mitigated FedAvg arm the first
+    10 rounds are used: it is the 0.015 threshold of the sweep, which runs
+    for 40.
     """
     if regime == "noiseless":
         return f"{paths.IID}/{strat}/noiseless"
@@ -460,11 +464,11 @@ def strategy_sources(reg, strat, regime):
 
 
 def strategy_drift(reg=None):
-    """Un pannello 1x3 per strategia: noiseless, noisy e mitigato sotto deriva.
+    """A 1x3 panel per strategy: noiseless, noisy and mitigated under drift.
 
-    Legenda ancorata a mano invece che dal layout constrained, e PNG a 200 dpi:
-    e' la resa con cui questa serie e' stata prodotta la prima volta, tenuta
-    per non cambiare file che stanno gia' nella cartella della campagna.
+    Legend anchored by hand instead of by the constrained layout, and PNG at
+    200 dpi: it is the rendering this series was first produced with, kept
+    so as not to change files that already sit in the campaign folder.
     """
     reg = reg or REGIMES["OU"]
     outdir = Path(paths.ensure(f"{reg.extra or reg.out}/strategies_drift_plots"))
@@ -506,7 +510,7 @@ def strategy_drift(reg=None):
 
 
 # =====================================================================
-# Sweep CDR delle campagne precedenti (cartelle allo stesso livello del repo)
+# CDR sweep of the earlier campaigns (folders at the same level as the repo)
 # =====================================================================
 
 CDR_MODES = ["no_memory", "ema", "warm_start"]
@@ -517,9 +521,10 @@ CDR_THRESH_DIR = {0.005: "thresh_0005", 0.015: "thresh_0015",
 CDR_NOISE_LEVELS = [0.005, 0.007, 0.009, 0.011, 0.013, 0.015, 0.017, 0.019]
 
 
-# Queste quattro figure sono nate prima dello stile condiviso, con i soli tre
-# rcParams qui sotto sul resto dei default di matplotlib. Riprodurle dentro
-# rc_context le tiene identiche ai PDF gia' inclusi nel documento.
+# These four figures were born before the shared style, with only the three
+# rcParams below on top of matplotlib's defaults. Reproducing them inside
+# rc_context keeps them identical to the PDFs already included in the
+# document.
 CDR_RC = {
     "font.family": "serif", "mathtext.fontset": "cm", "font.size": 9,
     "axes.labelsize": "medium", "axes.titlesize": "large",
@@ -559,11 +564,11 @@ def _cdr_curve(ax, x_values, base_dir, x_map, stat):
 
 
 def cdr_sweep():
-    """Ricalibrazioni contro soglia e contro rumore, campagne pre-OU.
+    """Recalibrations against threshold and against noise, pre-OU campaigns.
 
-    Due statistiche per ciascuno sweep: media con deviazione standard e
-    mediana con MAD. La prima e' quella storica, la seconda quella usata dal
-    resto del capitolo.
+    Two statistics for each sweep: mean with standard deviation and median
+    with MAD. The first is the historical one, the second the one used by
+    the rest of the chapter.
     """
     out = Path(paths.ensure(paths.CAP04))
     stats = [(_mean_std, "mean_std"), (_median_mad, "median_mad")]
@@ -618,18 +623,19 @@ def _cdr_legend(ax):
 # =====================================================================
 
 def all_figures(regime="OU"):
-    """Le figure di una campagna, nell'ordine in cui venivano prodotte."""
+    """The figures of one campaign, in the order they used to be produced."""
     reg = REGIMES[regime]
     print(f">>> Regime {reg.name}, output in {reg.out}/")
-    # La versione con inset e' quella impaginata, la piana resta per confronto.
+    # The inset version is the one in the document, the plain one stays for
+    # comparison.
     threshold_sweep_inset(reg)
     threshold_sweep(reg)
     savings(reg)
     cumulative(reg)
     quality_panels(reg)
     if reg.name == "OU":
-        # Distanze nei pesi e traiettorie di rumore non dipendono dallo sweep
-        # sulla memoria: si producono una volta sola, nel profilo OU.
+        # Weight distances and noise trajectories do not depend on the memory
+        # sweep: they are produced once, in the OU profile.
         weight_distance(reg)
         noise_drift(reg)
 

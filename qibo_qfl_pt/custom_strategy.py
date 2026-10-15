@@ -12,8 +12,8 @@ class StrategyWithMetrics:
     """Mixin adding metric saving and printing, and deterministic client selection."""
     
     def __init__(self, save_path: str = "results", suffix: str = "", run_info: dict | None = None,
-                 sampling_seed: int = 42, training_mode: str = "federated", noise_info: dict | None = None,
-                 nshots=None, model_type: str = "quantum", **kwargs):
+             sampling_seed: int = 42, training_mode: str = "federated", noise_info: dict | None = None,
+             nshots=None, model_type: str = "quantum", circuit: str = "2q", dataset: str = "circle", **kwargs):
         # CDR memory: popped before super() so it is not passed on to FedAvg/FedAdam/etc.
         cdr_memory = kwargs.pop("cdr_memory", False)
         cdr_beta = float(kwargs.pop("cdr_beta", 0.0))
@@ -28,6 +28,8 @@ class StrategyWithMetrics:
         self.run_info["training_mode"] = training_mode
         self.run_info["nshots"] = nshots
         self.run_info["model_type"] = model_type
+        self.run_info["circuit"] = circuit
+        self.run_info["dataset"] = dataset
         if noise_info:
             self.run_info.update(noise_info)
         self.sampling_seed = sampling_seed
@@ -41,8 +43,8 @@ class StrategyWithMetrics:
 
         # Initialise the variables for the deterministic sampling
         self.current_round = 0
-        self.deterministic_indices = []  # Ordine deterministico degli INDICI
-        self.node_id_to_index = {}       # Mapping node_id -> indice fisso
+        self.deterministic_indices = []  # Deterministic order of the INDICES
+        self.node_id_to_index = {}       # Mapping node_id -> fixed index
         self.index_to_node_id = {}       # Mapping indice -> node_id
         self.is_initialized = False
         

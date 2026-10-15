@@ -1,40 +1,40 @@
-"""Confronti rapidi fra cartelle di run, con lo stile della tesi.
+"""Quick comparisons between run folders, in the thesis style.
 
-Serve per guardare un risultato appena uscito senza scrivere una figura
-registrata: si danno le cartelle, lo stile lo sceglie la palette. Le figure
-escono in thesis_images/extra/, non fra quelle impaginate.
+Meant for looking at a result that has just come out without writing a
+registered figure: you give the folders, the palette picks the style. The
+figures go to thesis_images/extra/, not among the ones in the document.
 
-Tre modi di usarlo, equivalenti:
+Three equivalent ways of using it:
 
-    # 1. da riga di comando, niente da editare
+    # 1. from the command line, nothing to edit
     python -m thesis_plots.compare confronto \\
         FedAvg=results/noise_and_mitigation_drift/iid/fedavg/noisy \\
         FedProx=results/noise_and_mitigation_drift/iid/fedprox/noisy
 
-    # 2. importandolo, da un notebook o da uno script
+    # 2. importing it, from a notebook or a script
     from thesis_plots import compare
     compare({"FedAvg": "...", "FedProx": "..."}, "confronto")
 
-    # 3. editando il blocco in fondo a questo file, poi
+    # 3. editing the block at the bottom of this file, then
     python -m thesis_plots.compare
 
-Con --ref si aggiungono le curve di riferimento, che escono tratteggiate e
-dietro alle altre: il centralizzato, il noiseless, quello che serve.
+With --ref the reference curves are added; they come out dashed and behind
+the others: the centralized run, the noiseless one, whatever is needed.
 """
 import argparse
 import sys
 
 from . import draw, loaders, palette, paths
 
-# Colori e marcatori per le etichette che non sono nomi di strategia.
+# Colours and markers for the labels that are not strategy names.
 FALLBACK_COLORS = [f"C{i}" for i in (0, 1, 2, 3, 4, 5, 6, 8, 9)]
 
 
 def _stile(etichetta, i):
-    """Colore, marcatore e sfasamento di una curva.
+    """Colour, marker and offset of a curve.
 
-    Le strategie tengono i colori che hanno in tutta la tesi, cosi' una
-    figura al volo e una impaginata si leggono allo stesso modo.
+    Strategies keep the colours they have throughout the thesis, so that a
+    quick figure and one in the document read the same way.
     """
     nome = palette.STRATEGY_NAMES.get(etichetta.lower(), etichetta)
     if nome in palette.STRATEGY_COLORS:
@@ -47,13 +47,13 @@ def _stile(etichetta, i):
 
 
 def _da_glob(modello, max_round=None):
-    """Curve da un gruppo di file che stanno in una cartella condivisa.
+    """Curves from a group of files that sit in a shared folder.
 
-    Alcune campagne non tengono una cartella per braccio: le run delle
-    cinque strategie a 40 round stanno tutte in strategy_comparison, e si
-    distinguono per il nome del file. Qui il modello e' un percorso con un
-    jolly, per esempio .../fedavg_*.json, e i round si aggregano come fa
-    read_federated su una cartella.
+    Some campaigns do not keep one folder per arm: the runs of the five
+    strategies at 40 rounds all sit in strategy_comparison, and are told
+    apart by the file name. Here the pattern is a path with a wildcard, for
+    example .../fedavg_*.json, and the rounds are aggregated the way
+    read_federated does on a folder.
     """
     import glob as _glob
     import json as _json
@@ -81,13 +81,12 @@ def _da_glob(modello, max_round=None):
 
 
 def _carica(sorgente, centralizzato=False, max_round=None):
-    """Legge una cartella o un gruppo di file, o lascia passare dati gia' letti.
+    """Read a folder or a group of files, or let already-read data through.
 
-    La sorgente puo' essere una cartella, oppure un percorso con un jolly
-    (.../fedavg_*.json) quando le run di piu' bracci condividono la stessa
-    cartella. Una sorgente vuota non solleva: i loader tornano curve vuote,
-    che disegnate darebbero una figura muta, quindi qui diventa un avviso e
-    la curva si salta.
+    The source can be a folder, or a path with a wildcard (.../fedavg_*.json)
+    when the runs of several arms share the same folder. An empty source
+    does not raise: the loaders return empty curves, which drawn would give
+    a mute figure, so here it becomes a warning and the curve is skipped.
     """
     if not isinstance(sorgente, str):
         return sorgente
@@ -98,29 +97,28 @@ def _carica(sorgente, centralizzato=False, max_round=None):
             dati = loaders.read_centralized(sorgente)
         else:
             dati = loaders.read_federated(sorgente, max_round=max_round)
-    except Exception as exc:                       # sorgente storta o illeggibile
-        print(f"  saltata {sorgente}: {exc}")
+    except Exception as exc:                       # broken or unreadable source
+        print(f"  skipped {sorgente}: {exc}")
         return None
     if not dati.get("rounds"):
-        print(f"  saltata {sorgente}: nessuna run letta")
+        print(f"  skipped {sorgente}: no run read")
         return None
     return dati
 
 
 def compare(scenari, nome, refs=None, metrics=("loss", "accuracy", "f1"),
             max_round=None, out=None):
-    """Confronta piu' cartelle di run in una figura a pannelli.
+    """Compare several run folders in a multi-panel figure.
 
-    scenari: dict {etichetta: cartella} (o {etichetta: dati gia' letti}).
-    nome:    nome del file, senza estensione.
-    refs:    dict {etichetta: cartella} per le curve di riferimento, che
-             escono tratteggiate e dietro alle altre. Un'etichetta che
-             contiene "centr" si legge come run centralizzata.
-    metrics: quali pannelli disegnare, es. ("loss",) per il solo primo.
-    out:     cartella di destinazione; default thesis_images/extra/.
+    scenari: dict {label: folder} (or {label: already-read data}).
+    nome:    file name, without extension.
+    refs:    dict {label: folder} for the reference curves, which come out
+             dashed and behind the others. A label containing "centr" is
+             read as a centralized run.
+    metrics: which panels to draw, e.g. ("loss",) for the first one only.
+    out:     destination folder; default thesis_images/extra/.
 
-    Restituisce il percorso della figura, o None se non c'era nulla da
-    disegnare.
+    Returns the path of the figure, or None if there was nothing to draw.
     """
     curve = []
 
@@ -139,7 +137,7 @@ def compare(scenari, nome, refs=None, metrics=("loss", "accuracy", "f1"),
         curve.append((etichetta, dati, colore, "-", marcatore, sfasamento))
 
     if not curve:
-        print("Nessuna curva da disegnare: controlla i percorsi.")
+        print("No curve to draw: check the paths.")
         return None
 
     destinazione = f"{paths.ensure(out or paths.EXTRA)}/{nome}"
@@ -148,10 +146,10 @@ def compare(scenari, nome, refs=None, metrics=("loss", "accuracy", "f1"),
 
 
 def _coppia(testo):
-    """Converte 'Etichetta=cartella' nei due pezzi."""
+    """Split 'Label=folder' into its two parts."""
     if "=" not in testo:
         raise argparse.ArgumentTypeError(
-            f"atteso etichetta=cartella, ricevuto {testo!r}")
+            f"expected label=folder, got {testo!r}")
     etichetta, _, cartella = testo.partition("=")
     return etichetta, cartella
 
@@ -159,28 +157,28 @@ def _coppia(testo):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="python -m thesis_plots.compare",
-        description="Confronto rapido fra cartelle di run, nello stile della tesi.")
+        description="Quick comparison between run folders, in the thesis style.")
     parser.add_argument("nome", nargs="?",
-                        help="nome del file prodotto, senza estensione")
+                        help="name of the produced file, without extension")
     parser.add_argument("scenari", nargs="*", type=_coppia, default=[],
-                        help="una o piu' coppie etichetta=cartella")
+                        help="one or more label=folder pairs")
     parser.add_argument("--ref", action="append", type=_coppia, default=[],
-                        metavar="ETICHETTA=CARTELLA",
-                        help="curva di riferimento, tratteggiata (ripetibile)")
+                        metavar="LABEL=FOLDER",
+                        help="reference curve, dashed (repeatable)")
     parser.add_argument("--metrics", nargs="+", default=["loss", "accuracy", "f1"],
-                        help="pannelli da disegnare. Default: loss accuracy f1")
+                        help="panels to draw. Default: loss accuracy f1")
     parser.add_argument("--max-round", type=int, default=None,
-                        help="tronca le run piu' lunghe a questo round")
+                        help="truncate the longer runs at this round")
     parser.add_argument("--out", default=None,
-                        help="cartella di destinazione. Default: thesis_images/extra")
+                        help="destination folder. Default: thesis_images/extra")
     args = parser.parse_args(argv)
 
     if not args.nome:
-        # Nessun argomento: si usa il blocco qui sotto, da editare.
+        # No arguments: use the block below, meant to be edited.
         return esempio()
 
     if not args.scenari:
-        parser.error("serve almeno una coppia etichetta=cartella")
+        parser.error("at least one label=folder pair is required")
 
     percorso = compare(dict(args.scenari), args.nome, refs=dict(args.ref),
                        metrics=tuple(args.metrics), max_round=args.max_round,
@@ -189,14 +187,14 @@ def main(argv=None):
 
 
 def esempio():
-    """Il confronto da editare, per chi preferisce lavorare sul file.
+    """The comparison to edit, for those who prefer working on the file.
 
-    Si lancia con `python -m thesis_plots.compare` senza argomenti.
+    Run with `python -m thesis_plots.compare` without arguments.
 
-    Qui le cinque strategie senza rumore: le loro run condividono una sola
-    cartella e si distinguono per il nome del file, percio' la sorgente e'
-    un percorso con un jolly e non una cartella. Il centralizzato, che sta
-    in una cartella sua, fa da riferimento tratteggiato.
+    Here the five strategies without noise: their runs share a single folder
+    and are told apart by the file name, so the source is a path with a
+    wildcard and not a folder. The centralized run, which has a folder of
+    its own, serves as the dashed reference.
     """
     base = f"{paths.STRATEGY_FED}/iid"
     percorso = compare(

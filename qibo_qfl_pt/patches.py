@@ -163,11 +163,12 @@ pt.QuantumModelAutoGrad = _FixedQuantumModelAutoGrad
 def inject_cdr_map(model, a, b):
     """Inject the CDR parameters (a, b) into the mitigator of a QMLModel.
 
-    Dopo l'iniezione il mitigator si comporta come se avesse già calibrato:
-    usa la mappa iniettata e ricalibra solo quando la soglia RTQEM lo richiede.
+    After the injection the mitigator behaves as if it had already calibrated:
+    it uses the injected map and recalibrates only when the RTQEM threshold
+    requires it.
 
-    Il reference_value viene calcolato al primo forward (costa poco, è noiseless)
-    tramite il flusso standard di qiboml — noi settiamo solo (a, b).
+    The reference_value is computed at the first forward (cheap, it is
+    noiseless) through the standard qiboml flow; here only (a, b) are set.
     """
     mitigator = getattr(
         getattr(getattr(model, "q_model", None), "decoding", None),
