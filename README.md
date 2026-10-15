@@ -158,7 +158,7 @@ need the full run environment and take minutes rather than seconds.
 | `qibo_qfl_pt/`     | Flower app: client, server, custom strategy, model, noise    |
 | `run_experiments/` | campaign launchers (federated, centralized, tuning)          |
 | `thesis_plots/`    | figures and tables for the thesis                            |
-| `notebooks/`       | `example.ipynb`, a toy run — start here                      |
+| `notebooks/`       | `example.ipynb`, a toy run                                   |
 | `figures/`         | the few figures shown in this README                         |
 
 ## Development
