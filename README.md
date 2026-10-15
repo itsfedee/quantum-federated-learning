@@ -176,5 +176,3 @@ data paths), `palette.py` (colours and markers), `loaders.py` (reading the run
 JSONs) and `draw.py` (the recurring figure shapes). A change of form that should
 apply to every figure is made once, there.
 
-Code comments and docstrings are in English; `thesis_plots/README.md` is in
-Italian.

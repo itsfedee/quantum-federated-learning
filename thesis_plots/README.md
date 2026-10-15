@@ -1,149 +1,149 @@
 # thesis_plots
 
-Tutte le figure e le tabelle della tesi si producono da qui. Un comando per
-figura, i dati letti da `results/`, i PDF scritti in `thesis_images/`.
+Every figure and table of the thesis is produced from here. One command per
+figure, the data read from `results/`, the PDFs written to `thesis_images/`.
 
 ```
-python -m thesis_plots --list              elenco di gruppi e figure
-python -m thesis_plots noise.circle        una figura sola
-python -m thesis_plots noise               un gruppo intero
-python -m thesis_plots all                 tutte, tranne quelle che usano qibo
-python -m thesis_plots all --with-qibo     proprio tutte (lento)
-python -m thesis_plots all --keep-going    prosegue anche se una fallisce
-python -m thesis_plots noise --results D:/dati --out D:/figure
-                                           dati e figure in un'altra radice
+python -m thesis_plots --list              list of groups and figures
+python -m thesis_plots noise.circle        a single figure
+python -m thesis_plots noise               a whole group
+python -m thesis_plots all                 everything, except the figures that use qibo
+python -m thesis_plots all --with-qibo     really everything (slow)
+python -m thesis_plots all --keep-going    carry on when a figure fails
+python -m thesis_plots noise --results D:/data --out D:/figures
+                                           data and figures under another root
 ```
 
-Il runner si sposta nella radice del repository prima di produrre qualsiasi
-cosa, quindi i comandi funzionano da qualunque cartella. Le radici passate
-con `--results`, `--out` e `--archive` si risolvono rispetto alla cartella da
-cui lanci il comando; senza opzioni valgono `results/`, `thesis_images/` e
-`archive/` dentro il repository. La struttura sotto la radice non cambia:
-`--results` serve a chi tiene i dati altrove, `--out` a rigenerare una figura
-di prova senza sovrascrivere quella impaginata.
+The runner moves to the repository root before producing anything, so the
+commands work from any folder. The roots given with `--results`, `--out` and
+`--archive` are resolved against the folder the command is launched from;
+without options they are `results/`, `thesis_images/` and `archive/` inside
+the repository. The tree below the root does not change: `--results` is for
+whoever keeps the data elsewhere, `--out` for regenerating a trial figure
+without overwriting the one in the document.
 
-## Confronti al volo
+## Quick comparisons
 
-Per guardare un risultato che non ha una figura registrata c'è `compare`: si
-danno le cartelle delle run, aggrega con mediana e MAD sui seed e disegna i
-tre pannelli in `thesis_images/extra/`.
+To look at a result that has no registered figure there is `compare`: give
+it the run folders, it aggregates them (median and MAD over the seeds) and
+draws the three panels into `thesis_images/extra/`.
 
 ```
-python -m thesis_plots.compare nome FedAvg=cartella FedProx=cartella --ref Centralized=cartella
+python -m thesis_plots.compare name FedAvg=folder FedProx=folder --ref Centralized=folder
 ```
 
-Le sorgenti possono essere cartelle o percorsi con jolly (`.../fedavg_*.json`)
-quando più bracci condividono la stessa cartella. Con `--ref` le curve di
-riferimento escono tratteggiate e dietro alle altre; `--metrics`, `--max-round`
-e `--out` scelgono pannelli, troncamento e destinazione. In fondo a
-`compare.py` c'è anche un blocco `esempio()` da editare, per chi preferisce
-lavorare sul file.
+A source can be a folder or a path with a wildcard (`.../fedavg_*.json`) when
+several arms share the same folder. With `--ref` the reference curves come
+out dashed and behind the others; `--metrics`, `--max-round` and `--out` pick
+the panels, the truncation and the destination. At the bottom of `compare.py`
+there is also an `esempio()` block to edit, for those who prefer working on
+the file.
 
-## Com'è fatto
+## Layout
 
-| file | ruolo |
+| file | role |
 |---|---|
-| `paths.py` | **l'unico posto con i percorsi**: dati in `results/`, figure in `thesis_images/`, campagne fuori tesi in `archive/` |
-| `loaders.py` | lettura dei JSON delle run, mediana e MAD sui seed |
-| `draw.py` | primitive di disegno comuni al capitolo 4 (pannelli di scenario, bande) |
-| `style.py` | dimensioni dei pannelli, legende, `save()` che scrive PDF + PNG |
-| `palette.py` | colori, marcatori, etichette e la lista dei sette seed |
-| `noise_model.py` | ricostruisce le traiettorie di rumore usate nelle run |
-| `figures/__init__.py` | il registro: nome della figura -> funzione che la produce |
-| `figures/*.py` | un modulo per capitolo |
+| `paths.py` | **the only place with paths**: data in `results/`, figures in `thesis_images/`, campaigns outside the thesis in `archive/` |
+| `loaders.py` | reading of the run JSONs, median and MAD over the seeds |
+| `draw.py` | drawing primitives shared by chapter 4 (scenario panels, bands) |
+| `style.py` | panel sizes, legends, `save()` which writes PDF + PNG |
+| `palette.py` | colours, markers, labels and the list of the seven seeds |
+| `noise_model.py` | rebuilds the noise trajectories used in the runs |
+| `figures/__init__.py` | the registry: figure name -> function that produces it |
+| `figures/*.py` | one module per chapter |
 
-Una figura nuova si aggiunge scrivendo la funzione nel modulo del suo capitolo
-e registrandola nel dizionario `FIGURES` in fondo al file.
+A new figure is added by writing its function in the module of its chapter
+and registering it in the `FIGURES` dictionary at the bottom of the file.
 
-## Le figure, una per riga
+## The figures, one per line
 
-`[qibo]` segna quelle che rivalutano il modello: sono lente e `all` le salta se
-non passi `--with-qibo`. La colonna dei dati elenca le cartelle sotto
-`results/`, salvo dove indicato `archive/`.
+`[qibo]` marks the ones that re-evaluate the model: they are slow and `all`
+skips them unless you pass `--with-qibo`. The data column lists the folders
+under `results/`, except where `archive/` is stated.
 
-### Capitolo 3 — metodologia
+### Chapter 3 — methodology
 
-| comando | produce | legge |
+| command | produces | reads |
 |---|---|---|
-| `cap03.partitions` [qibo] | `3_FINAL/03_dirichlet_partitions` | genera i dati al volo |
-| `cap03.drift` | `3_FINAL/03_noise_drift_ou_sigma001_seed5` | `noise_model.py`, nessun file |
+| `cap03.partitions` [qibo] | `3_FINAL/03_dirichlet_partitions` | generates the data on the fly |
+| `cap03.drift` | `3_FINAL/03_noise_drift_ou_sigma001_seed5` | `noise_model.py`, no file |
 
-### 4.1 — confronto fra strategie
+### 4.1 — strategy comparison
 
-| comando | produce | legge |
+| command | produces | reads |
 |---|---|---|
 | `strategies.comparison` | `4_1_FINAL/04_strategy_comparison_{iid,non_iid}` + `extra/04_fedavg_iid_tuning` | `strategy_comparison` |
-| `tuning.per_strategy_iid` | `4_1_FINAL/04_<strategia>_tuning_iid` (5 figure) | `tuning/iid` |
+| `tuning.per_strategy_iid` | `4_1_FINAL/04_<strategy>_tuning_iid` (5 figures) | `tuning/iid` |
 | `tuning.grid_iid` | `6_FINAL/06_full_tuning_iid` | `tuning/iid` |
 | `tuning.grid_non_iid` | `6_FINAL/06_tuning_non_iid` | `tuning/non_iid` |
 | `tuning.fedavg` | `6_FINAL/06_tuning_non_iid_fedavg` | `tuning/non_iid` |
-| `tuning.per_strategy_non_iid_old` | campagna vecchia, non impaginata | `archive/tuning_non_iid` |
+| `tuning.per_strategy_non_iid_old` | old campaign, not in the document | `archive/tuning_non_iid` |
 
-### 4.2 — rumore e deriva
+### 4.2 — noise and drift
 
-| comando | produce | legge |
+| command | produces | reads |
 |---|---|---|
 | `noise.levels` | `4_2_FINAL/04_fedavg_noiselevels` | `noise_and_mitigation` |
 | `noise.seed_isolation` | `4_2_FINAL/seed_isolation_median_mad` | `seed_isolation` |
-| `noise.drift` | `4_2_FINAL/04_noiseless_vs_noisy_vs_drift` + la variante `_RW` in `extra/` | `noise_and_mitigation`, `noise_and_mitigation_drift`, `archive/strategies_drift_p005` |
-| `noise.circle` [qibo] | `4_2_FINAL/04_circle_predictions` | `noise_and_mitigation` (pesi) |
-| `strategies.under_noise` | `4_2_FINAL/04_strategy_comparison_{noisy,drift}_{iid,noniid}_p005`, `04_fedavg_noiseless_vs_noisy_vs_drift_noniid`, `6_FINAL/06_strategy_comparison_mitigated_*` + 3 varianti `_RW` in `extra/` | `noise_and_mitigation`, `noise_and_mitigation_drift`, `archive/strategies_drift_p005` |
+| `noise.drift` | `4_2_FINAL/04_noiseless_vs_noisy_vs_drift` + the `_RW` variant in `extra/` | `noise_and_mitigation`, `noise_and_mitigation_drift`, `archive/strategies_drift_p005` |
+| `noise.circle` [qibo] | `4_2_FINAL/04_circle_predictions` | `noise_and_mitigation` (weights) |
+| `strategies.under_noise` | `4_2_FINAL/04_strategy_comparison_{noisy,drift}_{iid,noniid}_p005`, `04_fedavg_noiseless_vs_noisy_vs_drift_noniid`, `6_FINAL/06_strategy_comparison_mitigated_*` + 3 `_RW` variants in `extra/` | `noise_and_mitigation`, `noise_and_mitigation_drift`, `archive/strategies_drift_p005` |
 
-### 4.3 — mitigazione e memoria
+### 4.3 — mitigation and memory
 
-| comando | produce | legge |
+| command | produces | reads |
 |---|---|---|
-| `mitigation.fedavg` | `4_3_FINAL/04_fedavg_noiseless_noisy_mitigated_p005`, `04_fedavg_noisy_vs_mitigated_drift_p005` + variante `_RW` | `noise_and_mitigation`, `noise_and_mitigation_drift`, `archive/strategies_drift_p005` |
+| `mitigation.fedavg` | `4_3_FINAL/04_fedavg_noiseless_noisy_mitigated_p005`, `04_fedavg_noisy_vs_mitigated_drift_p005` + `_RW` variant | `noise_and_mitigation`, `noise_and_mitigation_drift`, `archive/strategies_drift_p005` |
 | `mitigation.metrics_vs_p` | `4_3_FINAL/04_fedavg_metrics_vs_noise_level` | `noise_and_mitigation` |
 | `mitigation.loss_vs_p` | `4_3_FINAL/04_mitigation_vs_p` | `noise_and_mitigation` |
-| `mitigation.regression` [qibo] | `4_3_FINAL/04_cdr_regression_panels` | costruisce il modello, nessun file |
-| `memory.ou` | `4_3_FINAL/04_threshold_sweep`, `04_calibration_savings_vs_round`, `04_weight_distance` + 4 diagnostiche in `extra/` | `memory_sweep_drift`, `noise_and_mitigation`, `noise_and_mitigation_drift` |
-| `mitigation.panels` | le stesse curve dai valori client grezzi, in `extra/` | come sopra |
+| `mitigation.regression` [qibo] | `4_3_FINAL/04_cdr_regression_panels` | builds the model, no file |
+| `memory.ou` | `4_3_FINAL/04_threshold_sweep`, `04_calibration_savings_vs_round`, `04_weight_distance` + 4 diagnostics in `extra/` | `memory_sweep_drift`, `noise_and_mitigation`, `noise_and_mitigation_drift` |
+| `mitigation.panels` | the same curves from the raw client values, in `extra/` | as above |
 | `mitigation.static_threshold` | `extra/04_fedavg_static_loss_thresh_0015_vs_003` | `archive/FEDAVG_TH_0.03`, `archive/MEMORY_RESULTS_NEW/static_calibrations_federated` |
-| `mitigation.recovery` | tabella a schermo, nessun file | `noise_and_mitigation` |
-| `memory.strategy_drift` | 5 pannelli in `extra/strategies_drift_plots/` | `memory_sweep_drift`, `noise_and_mitigation`, `noise_and_mitigation_drift` |
-| `memory.rw` | la campagna random walk, in `extra/rw/` | `archive/MEMORY_RESULTS_OLD/threshold_sweep_p005_varwalk` |
-| `memory.cdr_sweep` | sweep CDR pre-OU, in `extra/cdr_sweep_old/` | `archive/MEMORY_RESULTS_OLD/{noise_sweep_th015, threshold_sweep_p005_varwalk}` |
+| `mitigation.recovery` | on-screen table, no file | `noise_and_mitigation` |
+| `memory.strategy_drift` | 5 panels in `extra/strategies_drift_plots/` | `memory_sweep_drift`, `noise_and_mitigation`, `noise_and_mitigation_drift` |
+| `memory.rw` | the random walk campaign, in `extra/rw/` | `archive/MEMORY_RESULTS_OLD/threshold_sweep_p005_varwalk` |
+| `memory.cdr_sweep` | pre-OU CDR sweep, in `extra/cdr_sweep_old/` | `archive/MEMORY_RESULTS_OLD/{noise_sweep_th015, threshold_sweep_p005_varwalk}` |
 
-### Tabelle
+### Tables
 
-| comando | produce | legge |
+| command | produces | reads |
 |---|---|---|
 | `tables.strategy` | `tables/strategy_comparison_{iid,non_iid}.tex`, `fedavg_tuning_iid.tex` | `strategy_comparison`, `tuning/iid` |
-| `tables.memory_ou` | `tables/tab_{memory_savings, thresh_vs_quality, centralized_drift}.tex` e `.csv` | `memory_sweep_drift`, `noise_and_mitigation_drift`, `tables_only` |
-| `tables.parameters` [qibo] | `tables/tab_parameters.tex` e `.csv` | `noise_and_mitigation` (pesi) |
-| `tables.memory_rw` | tabelle della campagna random walk | `archive/MEMORY_RESULTS_OLD/threshold_sweep_p005_varwalk` |
+| `tables.memory_ou` | `tables/tab_{memory_savings, thresh_vs_quality, centralized_drift}.tex` and `.csv` | `memory_sweep_drift`, `noise_and_mitigation_drift`, `tables_only` |
+| `tables.parameters` [qibo] | `tables/tab_parameters.tex` and `.csv` | `noise_and_mitigation` (weights) |
+| `tables.memory_rw` | tables of the random walk campaign | `archive/MEMORY_RESULTS_OLD/threshold_sweep_p005_varwalk` |
 
-### Esplorative
+### Exploratory
 
 `extra.loss_thresholds`, `extra.pareto`, `extra.threshold_comparison`,
-`extra.noiseless_noisy_mitigated_ou`, `extra.drift_random_walk` scrivono tutte
-in `thesis_images/extra/` e leggono `memory_sweep_drift`,
-`noise_and_mitigation_drift` e `archive/FEDAVG_TH_0.03`.
+`extra.noiseless_noisy_mitigated_ou` and `extra.drift_random_walk` all write
+to `thesis_images/extra/` and read `memory_sweep_drift`,
+`noise_and_mitigation_drift` and `archive/FEDAVG_TH_0.03`.
 
-## Quattro cose da sapere
+## Four things to know
 
-**Un comando produce più figure.** `memory.ou` ne salva sette, `strategies.under_noise`
-otto. Quindi per rigenerare `04_weight_distance` si lancia `memory.ou`, non un
-comando che porta quel nome.
+**One command produces several figures.** `memory.ou` saves seven,
+`strategies.under_noise` eight. So to regenerate `04_weight_distance` you run
+`memory.ou`, not a command that carries that name.
 
-**`ts.save` scrive sempre la coppia PDF + PNG.** Nelle cartelle consegnate ci
-sono solo i PDF: i PNG compaiono appena rigeneri.
+**`ts.save` always writes the PDF + PNG pair.** The delivered folders hold
+only the PDFs: the PNGs appear as soon as you regenerate.
 
-**Le varianti non impaginate finiscono in `extra/`.** Dove una figura esiste in
-due versioni — deriva Ornstein-Uhlenbeck e random walk — quella in tesi è la OU
-e prende il nome senza suffisso; la random walk esce con `_RW` in `extra/`.
-Vale per `noise.drift`, `strategies.under_noise` e `mitigation.fedavg`.
+**Variants outside the document go to `extra/`.** Where a figure exists in
+two versions — Ornstein-Uhlenbeck drift and random walk — the one in the
+thesis is the OU and takes the name without suffix; the random walk comes
+out with `_RW` in `extra/`. This holds for `noise.drift`,
+`strategies.under_noise` and `mitigation.fedavg`.
 
-**`memory.thresh_inset` è ridondante.** Produce lo stesso
-`4_3_FINAL/04_threshold_sweep` che produce già `memory.ou`: è il residuo di
-quando quella figura non era inclusa in `all_figures`. Si può togliere dal
-registro.
+**`memory.thresh_inset` is redundant.** It produces the same
+`4_3_FINAL/04_threshold_sweep` that `memory.ou` already produces: it is a
+leftover from when that figure was not included in `all_figures`. It can be
+removed from the registry.
 
-## Com'è stata verificata questa tabella
+## How this table was checked
 
-Le cartelle lette non sono dedotte dal codice ma registrate: un audit hook di
-Python ha annotato ogni file aperto da ciascuna delle 34 figure. La
-corrispondenza comando -> file prodotti viene dal log di una rigenerazione
-completa a partire da `thesis_images/` vuota, confrontata figura per figura con
-i PDF consegnati.
+The folders read are not inferred from the code but recorded: a Python audit
+hook logged every file opened by each of the 34 figures. The command -> files
+mapping comes from the log of a full regeneration starting from an empty
+`thesis_images/`, compared figure by figure with the delivered PDFs.
